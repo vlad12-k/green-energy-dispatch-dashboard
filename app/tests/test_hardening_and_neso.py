@@ -245,4 +245,3 @@ async def test_neso_client_rejects_invalid_json() -> None:
     client = NesoCarbonIntensityClient(transport=httpx.MockTransport(handler))
     with pytest.raises(NesoAPIError, match="invalid JSON"):
         await client.fetch_latest()
-
