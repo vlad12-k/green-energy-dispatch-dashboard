@@ -185,8 +185,8 @@ class NesoCarbonIntensityClient:
             f"regional/regionid/{self.region_id}",
         )
 
-    async def fetch_latest(self) -> CarbonIntensityReading:
-        """Fetch the latest regional interval; fail closed on invalid/stale data."""
+    async def fetch_raw(self) -> tuple[Any, datetime, str]:
+        """Fetch one raw regional JSON response with retrieval-time provenance."""
         try:
             async with httpx.AsyncClient(
                 timeout=self.timeout_seconds,
@@ -199,6 +199,7 @@ class NesoCarbonIntensityClient:
                 )
                 response.raise_for_status()
                 payload = response.json()
+                retrieved_at = datetime.now(UTC)
         except httpx.TimeoutException as exc:
             raise NesoAPIError("NESO Carbon Intensity API request timed out") from exc
         except httpx.HTTPStatusError as exc:
@@ -210,12 +211,18 @@ class NesoCarbonIntensityClient:
         except ValueError as exc:
             raise NesoAPIError("NESO Carbon Intensity API returned invalid JSON") from exc
 
+        return payload, retrieved_at, str(response.url)
+
+    async def fetch_latest(self) -> CarbonIntensityReading:
+        """Fetch the latest regional interval; fail closed on invalid/stale data."""
+        payload, retrieved_at, source_url = await self.fetch_raw()
         try:
             return parse_regional_response(
                 payload,
                 region_id=self.region_id,
+                now=retrieved_at,
                 max_age_seconds=self.max_age_seconds,
-                source_url=str(response.url),
+                source_url=source_url,
             )
         except ValueError as exc:
             raise NesoAPIError(f"NESO Carbon Intensity API data rejected: {exc}") from exc

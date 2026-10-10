@@ -60,6 +60,21 @@ def test_debug_is_allowed_only_outside_production() -> None:
     assert Settings(app_env="production").debug is False
 
 
+def test_database_url_is_optional_and_not_exposed_in_settings_repr() -> None:
+    assert Settings.model_validate({"database_url": ""}).database_url is None
+    configured = Settings.model_validate(
+        {"database_url": "postgresql+psycopg://user:secret@localhost/db"}
+    )
+    assert configured.database_url is not None
+    assert "secret" not in repr(configured)
+
+
+def test_empty_database_url_environment_preserves_stateless_settings(monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "")
+
+    assert Settings().database_url is None
+
+
 @pytest.mark.asyncio
 async def test_carbon_intensity_endpoint_returns_fresh_source_evidence(monkeypatch) -> None:
     now = datetime.now(UTC)

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     neso_region_id: int = Field(default=13, ge=1, le=17)
     neso_max_age_seconds: int = Field(default=3600, ge=60, le=86400)
     neso_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    database_url: SecretStr | None = Field(default=None, repr=False)
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def empty_database_url_is_disabled(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def production_is_not_debug(self) -> "Settings":

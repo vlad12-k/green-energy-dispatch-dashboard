@@ -14,7 +14,7 @@ A UK grid-aware energy operations platform in active development. The current sl
 
 ## Architecture and roadmap
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for system boundaries, current implementation status, data provenance, security assumptions, and staged product roadmap. See [`docs/SECURITY.md`](docs/SECURITY.md) for the open Debian base-image findings and scan policy. PostgreSQL persistence, forecast evaluation, energy optimisation, React UI, and production hosting are not yet implemented; the repo does not claim otherwise.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for system boundaries, current implementation status, data provenance, security assumptions, and staged product roadmap. See [`docs/SECURITY.md`](docs/SECURITY.md) for container scan evidence and policy. Optional PostgreSQL storage of NESO source evidence and normalized observations, one-shot ingestion, and offline replay are implemented; follow [`docs/DATABASE_AND_REPLAY.md`](docs/DATABASE_AND_REPLAY.md) for setup and limits. Forecast evaluation, energy optimisation, React UI, scheduled ingestion, and production hosting are not implemented.
 
 ## Quick start
 
@@ -52,6 +52,8 @@ Docker Compose builds and runs the API as a non-root user:
 ```bash
 docker compose up --build
 ```
+
+PostgreSQL is an opt-in development service defined in a separate Compose file, bound to loopback only. Configure local-only credentials in `.env` before starting it with `docker compose -f docker-compose.yml -f docker-compose.database.yml --profile database up -d db`. Apply reviewed migrations explicitly from the host; the existing API remains usable without PostgreSQL. See the database guide for exact migration, ingestion/replay, and test commands.
 
 ## License
 
