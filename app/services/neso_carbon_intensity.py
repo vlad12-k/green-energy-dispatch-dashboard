@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import math
@@ -68,37 +69,49 @@ def parse_regional_response(
         raise ValueError("now must include a timezone")
     retrieved_at = retrieved_at.astimezone(UTC)
 
+    if not isinstance(payload, Mapping):
+        raise ValueError("NESO response must be a JSON object")
+    regions = payload.get("data")
+    if not isinstance(regions, list) or not regions:
+        raise ValueError("response data must be a non-empty list")
+    if any(not isinstance(item, Mapping) for item in regions):
+        raise ValueError("regional entries must be JSON objects")
+    region = next(
+        (item for item in regions if item.get("regionid") == region_id), None
+    )
+    if region is None:
+        raise ValueError("NESO response does not include the requested region")
+
+    intervals = region.get("data")
+    if not isinstance(intervals, list) or not intervals:
+        raise ValueError("regional intervals must be a non-empty list")
+    record = intervals[0]
+    if not isinstance(record, Mapping):
+        raise ValueError("regional interval must be a JSON object")
+    intensity = record.get("intensity")
+    if not isinstance(intensity, Mapping):
+        raise ValueError("regional intensity must be a JSON object")
+
+    observed_at = _parse_timestamp(record.get("from"), "data[0].data[0].from")
+    valid_until = _parse_timestamp(record.get("to"), "data[0].data[0].to")
+    forecast = intensity.get("forecast")
+    actual = intensity.get("actual")
+    raw_value = actual if actual is not None else forecast
+    if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+        raise ValueError("intensity must contain a numeric actual or forecast value")
     try:
-        regions = payload["data"]
-        if not isinstance(regions, list) or not regions:
-            raise ValueError("response data must be a non-empty list")
-        region = next(
-            item for item in regions if item.get("regionid") == region_id
-        )
-        intervals = region["data"]
-        if not isinstance(intervals, list) or not intervals:
-            raise ValueError("regional intervals must be a non-empty list")
-        record = intervals[0]
-        intensity = record["intensity"]
-        observed_at = _parse_timestamp(record["from"], "data[0].data[0].from")
-        valid_until = _parse_timestamp(record["to"], "data[0].data[0].to")
-        forecast = intensity.get("forecast")
-        actual = intensity.get("actual")
-        raw_value = actual if actual is not None else forecast
-        if raw_value is None or isinstance(raw_value, bool):
-            raise ValueError("intensity must contain an actual or forecast value")
         value = float(raw_value)
-        if not math.isfinite(value) or value < 0:
-            raise ValueError("intensity must be finite and non-negative")
-        index = intensity["index"]
-        if not isinstance(index, str) or not index:
-            raise ValueError("intensity index must be a non-empty string")
-        measurement_type = "actual" if actual is not None else "forecast"
-        region_name = region["shortname"]
-        if not isinstance(region_name, str) or not region_name:
-            raise ValueError("region shortname must be a non-empty string")
-    except (KeyError, IndexError, TypeError, StopIteration) as exc:
-        raise ValueError("NESO response is missing required regional intensity fields") from exc
+    except OverflowError as exc:
+        raise ValueError("intensity must be finite and non-negative") from exc
+    if not math.isfinite(value) or value < 0:
+        raise ValueError("intensity must be finite and non-negative")
+    index = intensity.get("index")
+    if not isinstance(index, str) or not index:
+        raise ValueError("intensity index must be a non-empty string")
+    measurement_type = "actual" if actual is not None else "forecast"
+    region_name = region.get("shortname")
+    if not isinstance(region_name, str) or not region_name:
+        raise ValueError("region shortname must be a non-empty string")
 
     if valid_until <= observed_at:
         raise ValueError("measurement validity window is invalid")

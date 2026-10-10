@@ -168,13 +168,82 @@ def test_neso_parser_rejects_invalid_intensity(bad_value: float) -> None:
         parse_regional_response(payload, region_id=13, now=now)
 
 
+def test_neso_parser_rejects_non_numeric_intensity_values() -> None:
+    now = datetime.now(UTC)
+    start = now - timedelta(minutes=5)
+    for bad_value in ("79", True, 10**400):
+        payload = _payload(start=start, end=start + timedelta(minutes=30))
+        payload["data"][0]["data"][0]["intensity"]["actual"] = bad_value
+        with pytest.raises(ValueError):
+            parse_regional_response(payload, region_id=13, now=now)
+
+
 def test_neso_parser_rejects_wrong_region() -> None:
     now = datetime.now(UTC)
     start = now - timedelta(minutes=5)
     payload = _payload(start=start, end=start + timedelta(minutes=30))
     payload["data"][0]["regionid"] = 12
 
-    with pytest.raises(ValueError, match="required regional"):
+    with pytest.raises(ValueError, match="does not include the requested region"):
+        parse_regional_response(payload, region_id=13, now=now)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [None, [], "not-an-object", {}, {"data": None}, {"data": {}}, {"data": []}, {"data": [None]}],
+)
+def test_neso_parser_rejects_malformed_top_level_payloads(payload: object) -> None:
+    with pytest.raises(ValueError):
+        parse_regional_response(payload, region_id=13, now=datetime.now(UTC))
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "missing-region-data",
+        "region-data-wrong-type",
+        "region-data-empty",
+        "interval-wrong-type",
+        "missing-shortname",
+        "missing-from",
+        "missing-to",
+        "missing-intensity",
+        "intensity-wrong-type",
+        "missing-index",
+        "index-wrong-type",
+    ],
+)
+def test_neso_parser_rejects_malformed_nested_fields(scenario: str) -> None:
+    now = datetime.now(UTC)
+    start = now - timedelta(minutes=5)
+    payload = _payload(start=start, end=start + timedelta(minutes=30))
+    region = payload["data"][0]
+    record = region["data"][0]
+
+    if scenario == "missing-region-data":
+        del region["data"]
+    elif scenario == "region-data-wrong-type":
+        region["data"] = "not-a-list"
+    elif scenario == "region-data-empty":
+        region["data"] = []
+    elif scenario == "interval-wrong-type":
+        region["data"] = [None]
+    elif scenario == "missing-shortname":
+        del region["shortname"]
+    elif scenario == "missing-from":
+        del record["from"]
+    elif scenario == "missing-to":
+        del record["to"]
+    elif scenario == "missing-intensity":
+        del record["intensity"]
+    elif scenario == "intensity-wrong-type":
+        record["intensity"] = []
+    elif scenario == "missing-index":
+        del record["intensity"]["index"]
+    elif scenario == "index-wrong-type":
+        record["intensity"]["index"] = 1
+
+    with pytest.raises(ValueError):
         parse_regional_response(payload, region_id=13, now=now)
 
 

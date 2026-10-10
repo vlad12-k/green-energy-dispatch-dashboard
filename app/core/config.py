@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     app_name: str = "green-energy-dispatch-dashboard"
-    app_env: str = "production"
+    app_env: Literal["development", "testing", "production"] = "production"
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)
