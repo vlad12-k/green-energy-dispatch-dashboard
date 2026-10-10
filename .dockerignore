@@ -1,0 +1,15 @@
+# Avoid sending local and generated files to the Docker build context.
+.git
+.github
+.venv
+.venv-*
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
+.env
+.env.local
+logs
+models
+htmlcov
+.coverage
