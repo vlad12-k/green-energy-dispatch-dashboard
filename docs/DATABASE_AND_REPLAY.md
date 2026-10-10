@@ -26,7 +26,7 @@ Observations carry UTC-aware interval and retrieval timestamps, region, source a
 
 ## Offline replay
 
-Replay reads a saved raw payload and retrieval context from the database through `replay_raw_payload`; it performs no network request. It verifies SHA-256 and that the JSONB value matches the preserved canonical bytes, then calls the same parser with the original region, source URL, and retrieval time. The parser's freshness bound is widened only for replay so that historical evidence can be deterministically re-evaluated without falsely treating it as a current live reading. Replay does not invent absent intervals or reconstruct data that NESO did not return.
+Replay reads a saved raw payload and retrieval context from the database through `replay_raw_payload`; it performs no network request. It verifies SHA-256 and that the JSONB value matches the preserved canonical bytes, then calls the same parser with the original region, source URL, and retrieval time. The parser's freshness bound is widened only for replay so that historically accepted evidence can be deterministically re-evaluated. Evidence with a stored `validation_error` is refused with that rejection reason; `validation_fresh=false` alone is not treated as rejection because an accepted completed forecast can be non-fresh. Replay does not invent absent intervals or reconstruct data that NESO did not return.
 
 ## Tests and migrations
 

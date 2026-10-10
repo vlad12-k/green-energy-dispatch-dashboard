@@ -137,6 +137,11 @@ def replay_raw_payload(
     payload = json.loads(raw.payload_bytes)
     if payload != raw.payload:
         raise ValueError("stored JSON payload does not match preserved raw bytes")
+    if raw.validation_error is not None:
+        raise ValueError(
+            "NESO source evidence was rejected during ingestion: "
+            f"{raw.validation_error}"
+        )
     return parse_regional_response(
         payload,
         region_id=region_id or raw.region_id,

@@ -80,7 +80,7 @@ def test_observation_constraints_reject_invalid_interval_and_type(postgres_engin
 
 def test_postgres_ingestion_is_idempotent_and_preserves_forecast_type(postgres_engine) -> None:
     now = datetime.now(UTC).replace(second=0, microsecond=0)
-    raw_payload = sample_payload(now)
+    raw_payload = sample_payload(now - timedelta(minutes=45))
     raw_payload["data"][0]["data"][0]["intensity"]["actual"] = None
 
     class FixedClient:
@@ -101,13 +101,19 @@ def test_postgres_ingestion_is_idempotent_and_preserves_forecast_type(postgres_e
         assert first.inserted is True
         assert second.inserted is False
         assert first.reading.measurement_type == "forecast"
+        assert first.reading.interval_status == "completed"
+        assert first.reading.is_fresh is False
 
     with Session(postgres_engine) as session:
         raw = session.scalar(select(RawPayload))
         observation = session.scalar(select(CarbonObservation))
-        assert raw is not None and raw.validation_fresh is True
+        assert raw is not None and raw.validation_fresh is False
+        assert raw.validation_error is None
         assert observation is not None and observation.measurement_type == "forecast"
         assert observation.retrieved_at.tzinfo is not None
+        replayed = replay_raw_payload(raw)
+        assert replayed.measurement_type == "forecast"
+        assert replayed.is_fresh is False
 
 
 def test_postgres_ingestion_rolls_back_raw_and_observation_together(postgres_engine) -> None:
@@ -162,3 +168,65 @@ def test_postgres_ingestion_preserves_rejected_payload_without_observation(postg
         assert raw.validation_fresh is False
         assert raw.validation_error
         assert session.scalar(select(CarbonObservation)) is None
+
+
+def test_rejected_stale_evidence_is_preserved_but_cannot_replay_as_accepted(postgres_engine) -> None:
+    retrieved_at = datetime.now(UTC).replace(second=0, microsecond=0)
+    stale_payload = sample_payload(retrieved_at - timedelta(hours=2))
+
+    class StaleClient:
+        region_id = 13
+        max_age_seconds = 3600
+
+        async def fetch_raw(self):
+            return (
+                stale_payload,
+                retrieved_at,
+                "https://api.carbonintensity.org.uk/regional/regionid/13",
+            )
+
+    with Session(postgres_engine) as session:
+        repository = SqlAlchemyNesoRepository(session)
+        with pytest.raises(IngestionError) as error:
+            ingest_neso(StaleClient(), repository)
+        assert error.value.category is IngestionErrorCategory.VALIDATION
+
+    with Session(postgres_engine) as session:
+        raw = session.scalar(select(RawPayload))
+        assert raw is not None
+        assert raw.payload == stale_payload
+        assert raw.validation_fresh is False
+        assert raw.validation_error is not None and "stale" in raw.validation_error
+        with pytest.raises(ValueError, match="rejected during ingestion") as replay_error:
+            replay_raw_payload(raw)
+        assert raw.validation_error in str(replay_error.value)
+        assert session.scalar(select(CarbonObservation)) is None
+
+
+def test_valid_historical_actual_replays_deterministically(postgres_engine) -> None:
+    retrieved_at = datetime.now(UTC).replace(second=0, microsecond=0)
+    historical_payload = sample_payload(retrieved_at - timedelta(minutes=45))
+
+    class HistoricalClient:
+        region_id = 13
+        max_age_seconds = 3600
+
+        async def fetch_raw(self):
+            return (
+                historical_payload,
+                retrieved_at,
+                "https://api.carbonintensity.org.uk/regional/regionid/13",
+            )
+
+    with Session(postgres_engine) as session:
+        result = ingest_neso(HistoricalClient(), SqlAlchemyNesoRepository(session))
+        assert result.reading.measurement_type == "actual"
+        assert result.reading.interval_status == "completed"
+        assert result.reading.is_fresh is True
+
+    with Session(postgres_engine) as session:
+        raw = session.scalar(select(RawPayload))
+        assert raw is not None and raw.validation_error is None
+        first = replay_raw_payload(raw)
+        second = replay_raw_payload(raw)
+        assert first == second == result.reading

@@ -110,6 +110,26 @@ def test_source_validation_and_persistence_errors_are_categorized():
     assert persistence.value.category is IngestionErrorCategory.PERSISTENCE
 
 
+def test_rejected_stale_source_record_cannot_be_replayed():
+    retrieved_at = datetime.now(UTC)
+    stale_payload = payload(retrieved_at - timedelta(hours=2))
+    repository = FakeRepository()
+
+    with pytest.raises(IngestionError) as rejected:
+        ingest_neso(
+            FakeClient((stale_payload, retrieved_at, "https://example.test/region")),
+            repository,
+        )
+    assert rejected.value.category is IngestionErrorCategory.VALIDATION
+
+    rejected_record = next(iter(repository.rows.values()))
+    assert "stale" in rejected_record["validation_error"]
+    with pytest.raises(IngestionError) as replay:
+        replay_neso(rejected_record)
+    assert replay.value.category is IngestionErrorCategory.VALIDATION
+    assert "stale" in str(replay.value)
+
+
 def test_real_neso_client_fetches_exactly_once_for_one_ingestion():
     now = datetime.now(UTC)
     request_count = 0

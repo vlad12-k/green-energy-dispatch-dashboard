@@ -164,6 +164,11 @@ def _run_fetch(client: RawNesoClient) -> tuple[Any, datetime, str]:
 def replay_neso(record: Mapping[str, Any]) -> CarbonIntensityReading:
     """Re-parse stored evidence offline using its original retrieval context."""
     try:
+        if record.get("validation_error") is not None:
+            raise ValueError(
+                "NESO source evidence was rejected during ingestion: "
+                f"{record['validation_error']}"
+            )
         payload = record["raw_payload"]
         expected = record["payload_sha256"]
         actual = hashlib.sha256(_canonical_payload_bytes(payload)).hexdigest()
