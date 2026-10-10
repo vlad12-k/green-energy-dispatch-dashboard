@@ -4,6 +4,13 @@ services:
       context: .
     ports:
       - "8000:8000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
     environment:
       APP_ENV: development
       DEBUG: "true"
