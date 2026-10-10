@@ -74,6 +74,8 @@ class SimulationResult(BaseModel):
 
     strategy: Literal["immediate_charge_in_vehicle_id_order"]
     feasible: bool
+    baseline_feasible: bool
+    feasible_alternative_schedule: Literal["unknown"]
     delivered_energy_kwh: dict[str, float]
     unmet_energy_kwh: dict[str, float]
     charging_kw: list[float]
@@ -90,32 +92,58 @@ def simulate_baseline(scenario: DepotScenario) -> SimulationResult:
     for index in range(scenario.intervals):
         start = scenario.start_at + interval * index
         end = start + interval
-        depot_remaining = scenario.depot_power_kw
-        for vehicle in ordered:
-            if not (
-                vehicle.availability_start < end
-                and vehicle.availability_end > start
-                and remaining[vehicle.vehicle_id] > 0
-            ):
+        boundaries = sorted(
+            {
+                boundary
+                for vehicle in ordered
+                if vehicle.availability_start < end and vehicle.availability_end > start
+                for boundary in (max(start, vehicle.availability_start), min(end, vehicle.availability_end))
+            }
+        )
+        for segment_start, segment_end in zip(boundaries, boundaries[1:]):
+            segment_hours = (segment_end - segment_start).total_seconds() / 3600
+            if segment_hours <= 0:
                 continue
-            # A partially overlapping time bucket is available only for its overlap duration.
-            overlap_start = max(start, vehicle.availability_start)
-            overlap_end = min(end, vehicle.availability_end)
-            slot_hours = (overlap_end - overlap_start).total_seconds() / 3600
-            vehicle_kw = min(vehicle.charging_power_kw, depot_remaining)
-            energy = min(remaining[vehicle.vehicle_id], vehicle_kw * slot_hours)
-            if energy <= 0:
-                continue
-            average_interval_kw = energy * 60 / scenario.interval_minutes
-            powers[index] += average_interval_kw
-            depot_remaining -= average_interval_kw
-            remaining[vehicle.vehicle_id] -= energy
-            delivered[vehicle.vehicle_id] += energy
+            active = [
+                vehicle
+                for vehicle in ordered
+                if vehicle.availability_start <= segment_start
+                and vehicle.availability_end >= segment_end
+            ]
+            time_remaining_hours = segment_hours
+            while time_remaining_hours > 1e-12:
+                rates: dict[str, float] = {}
+                depot_remaining_kw = scenario.depot_power_kw
+                for vehicle in active:
+                    vehicle_id = vehicle.vehicle_id
+                    if remaining[vehicle_id] <= 1e-12:
+                        continue
+                    rate_kw = min(vehicle.charging_power_kw, depot_remaining_kw)
+                    if rate_kw > 0:
+                        rates[vehicle_id] = rate_kw
+                        depot_remaining_kw -= rate_kw
+                if not rates:
+                    break
 
-    unmet = {key: round(value, 9) for key, value in remaining.items()}
+                time_to_completion = min(
+                    remaining[vehicle_id] / rate_kw
+                    for vehicle_id, rate_kw in rates.items()
+                )
+                charged_hours = min(time_remaining_hours, time_to_completion)
+                for vehicle_id, rate_kw in rates.items():
+                    energy = min(remaining[vehicle_id], rate_kw * charged_hours)
+                    remaining[vehicle_id] -= energy
+                    delivered[vehicle_id] += energy
+                    powers[index] += energy * 60 / scenario.interval_minutes
+                time_remaining_hours -= charged_hours
+
+    unmet = {key: round(max(value, 0.0), 9) for key, value in remaining.items()}
+    baseline_feasible = all(value <= 1e-9 for value in remaining.values())
     return SimulationResult(
         strategy="immediate_charge_in_vehicle_id_order",
-        feasible=all(value <= 1e-9 for value in remaining.values()),
+        feasible=baseline_feasible,
+        baseline_feasible=baseline_feasible,
+        feasible_alternative_schedule="unknown",
         delivered_energy_kwh={key: round(value, 9) for key, value in delivered.items()},
         unmet_energy_kwh=unmet,
         charging_kw=[round(value, 9) for value in powers],
