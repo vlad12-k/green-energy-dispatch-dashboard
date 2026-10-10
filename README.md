@@ -14,7 +14,7 @@ A UK grid-aware energy operations platform in active development. The current sl
 
 ## Architecture and roadmap
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for system boundaries, current implementation status, data provenance, security assumptions, and staged product roadmap. PostgreSQL persistence, forecast evaluation, energy optimisation, React UI, and production hosting are not yet implemented; the repo does not claim otherwise.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for system boundaries, current implementation status, data provenance, security assumptions, and staged product roadmap. See [`docs/SECURITY.md`](docs/SECURITY.md) for the open Debian base-image findings and scan policy. PostgreSQL persistence, forecast evaluation, energy optimisation, React UI, and production hosting are not yet implemented; the repo does not claim otherwise.
 
 ## Quick start
 
