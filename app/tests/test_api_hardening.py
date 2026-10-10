@@ -76,6 +76,8 @@ async def test_carbon_intensity_endpoint_returns_fresh_source_evidence(monkeypat
     assert body["intensity_gco2_per_kwh"] == 59
     assert body["measurement_type"] == "actual"
     assert body["region_id"] == 13
+    assert body["interval_status"] == "in_progress"
+    assert body["interval_lag_seconds"] == 0
     assert body["is_fresh"] is True
     assert body["source_api"] == "neso-carbon-intensity-api"
     assert body["source_url"].endswith("/regional/regionid/13")

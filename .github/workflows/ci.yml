@@ -48,9 +48,17 @@ jobs:
           push: false
           load: true
           tags: green-energy-dispatch-dashboard:ci
-      - uses: aquasecurity/trivy-action@0.33.1
+      # Report all HIGH/CRITICAL base and application findings; gate fixed ones below.
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: green-energy-dispatch-dashboard:ci
           format: table
+          exit-code: "0"
+          severity: CRITICAL,HIGH
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: green-energy-dispatch-dashboard:ci
+          format: table
+          ignore-unfixed: true
           exit-code: "1"
           severity: CRITICAL,HIGH

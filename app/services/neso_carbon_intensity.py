@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import math
 from typing import Any
 from urllib.parse import urljoin
@@ -30,6 +30,8 @@ class CarbonIntensityReading:
     observed_at: datetime
     valid_until: datetime
     retrieved_at: datetime
+    interval_status: str
+    interval_lag_seconds: float
     is_fresh: bool
     age_seconds: float
     source_api: str
@@ -91,6 +93,7 @@ def parse_regional_response(
         index = intensity["index"]
         if not isinstance(index, str) or not index:
             raise ValueError("intensity index must be a non-empty string")
+        measurement_type = "actual" if actual is not None else "forecast"
         region_name = region["shortname"]
         if not isinstance(region_name, str) or not region_name:
             raise ValueError("region shortname must be a non-empty string")
@@ -99,24 +102,39 @@ def parse_regional_response(
 
     if valid_until <= observed_at:
         raise ValueError("measurement validity window is invalid")
-    age_seconds = (retrieved_at - observed_at).total_seconds()
-    if age_seconds < 0:
-        raise ValueError("NESO measurement starts in the future")
-    if age_seconds > max_age_seconds or retrieved_at >= valid_until:
+
+    if observed_at > retrieved_at and actual is not None:
+        raise ValueError("actual measurement starts in the future")
+    if observed_at > retrieved_at and observed_at - retrieved_at > timedelta(hours=48):
+        raise ValueError("forecast exceeds the supported 48-hour horizon")
+
+    age_seconds = max(0.0, (retrieved_at - observed_at).total_seconds())
+    if age_seconds > max_age_seconds:
         raise ValueError(
             f"NESO measurement is stale (age {age_seconds:.0f}s, limit {max_age_seconds}s)"
         )
 
+    if retrieved_at < observed_at:
+        interval_status = "upcoming"
+    elif retrieved_at >= valid_until:
+        interval_status = "completed"
+    else:
+        interval_status = "in_progress"
+    interval_lag_seconds = max(0.0, (retrieved_at - valid_until).total_seconds())
+    is_fresh = not (measurement_type == "forecast" and interval_status == "completed")
+
     return CarbonIntensityReading(
         intensity_gco2_per_kwh=value,
-        measurement_type="actual" if actual is not None else "forecast",
+        measurement_type=measurement_type,
         region_id=region_id,
         region_name=region_name,
         intensity_index=index,
         observed_at=observed_at,
         valid_until=valid_until,
         retrieved_at=retrieved_at,
-        is_fresh=True,
+        interval_status=interval_status,
+        interval_lag_seconds=interval_lag_seconds,
+        is_fresh=is_fresh,
         age_seconds=age_seconds,
         source_api=SOURCE_API,
         source_url=source_url or DEFAULT_BASE_URL,

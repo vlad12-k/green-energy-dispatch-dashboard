@@ -45,6 +45,8 @@ class CarbonIntensityResponse(BaseModel):
     observed_at: datetime
     valid_until: datetime
     retrieved_at: datetime
+    interval_status: str = Field(pattern="^(upcoming|in_progress|completed)$")
+    interval_lag_seconds: FiniteFloat = Field(ge=0)
     is_fresh: bool
     age_seconds: FiniteFloat = Field(ge=0)
     source_api: str
@@ -61,6 +63,8 @@ class CarbonIntensityResponse(BaseModel):
             observed_at=reading.observed_at,
             valid_until=reading.valid_until,
             retrieved_at=reading.retrieved_at,
+            interval_status=reading.interval_status,
+            interval_lag_seconds=reading.interval_lag_seconds,
             is_fresh=reading.is_fresh,
             age_seconds=reading.age_seconds,
             source_api=reading.source_api,

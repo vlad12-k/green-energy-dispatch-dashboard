@@ -94,6 +94,67 @@ def test_neso_parser_falls_back_to_forecast_when_actual_is_absent() -> None:
 
     assert reading.intensity_gco2_per_kwh == 83
     assert reading.measurement_type == "forecast"
+    assert reading.interval_status == "in_progress"
+    assert reading.interval_lag_seconds == 0
+
+
+def test_recent_completed_actual_remains_fresh_with_explicit_interval_lag() -> None:
+    now = datetime.now(UTC)
+    start = now - timedelta(minutes=40)
+    end = start + timedelta(minutes=30)
+
+    reading = parse_regional_response(
+        _payload(start=start, end=end), region_id=13, now=now
+    )
+
+    assert reading.measurement_type == "actual"
+    assert reading.interval_status == "completed"
+    assert reading.interval_lag_seconds == pytest.approx(600, abs=1)
+    assert reading.is_fresh is True
+
+
+def test_recent_completed_forecast_is_explicitly_historical_not_current() -> None:
+    now = datetime.now(UTC)
+    start = now - timedelta(minutes=40)
+    end = start + timedelta(minutes=30)
+
+    reading = parse_regional_response(
+        _payload(start=start, end=end, actual=None), region_id=13, now=now
+    )
+
+    assert reading.measurement_type == "forecast"
+    assert reading.interval_status == "completed"
+    assert reading.is_fresh is False
+    assert reading.interval_lag_seconds == pytest.approx(600, abs=1)
+
+
+def test_future_forecast_is_accepted_but_actual_cannot_be_future_dated() -> None:
+    now = datetime.now(UTC)
+    start = now + timedelta(minutes=10)
+    end = start + timedelta(minutes=30)
+
+    forecast = parse_regional_response(
+        _payload(start=start, end=end, actual=None), region_id=13, now=now
+    )
+    assert forecast.measurement_type == "forecast"
+    assert forecast.interval_status == "upcoming"
+
+    far_future = now + timedelta(hours=49)
+    with pytest.raises(ValueError, match="48-hour horizon"):
+        parse_regional_response(
+            _payload(
+                start=far_future,
+                end=far_future + timedelta(minutes=30),
+                actual=None,
+            ),
+            region_id=13,
+            now=now,
+        )
+
+    with pytest.raises(ValueError, match="actual measurement starts in the future"):
+        parse_regional_response(
+            _payload(start=start, end=end), region_id=13, now=now
+        )
 
 
 @pytest.mark.parametrize("bad_value", [-1, float("nan"), float("inf")])
@@ -127,10 +188,12 @@ def test_neso_parser_rejects_future_or_expired_interval() -> None:
             now=now,
         )
 
-    old_start = now - timedelta(minutes=30)
+    old_start = now - timedelta(hours=2)
     with pytest.raises(ValueError, match="stale"):
         parse_regional_response(
-            _payload(start=old_start, end=now), region_id=13, now=now
+            _payload(start=old_start, end=old_start + timedelta(minutes=30)),
+            region_id=13,
+            now=now,
         )
 
 

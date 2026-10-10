@@ -33,9 +33,9 @@ Future: historical replay → forecast evaluation → energy optimisation → ob
 
 ## Data contract and provenance
 
-The regional API response exposes an interval (`from`, `to`) and intensity values (`forecast`, `actual`, `index`). The adapter selects `actual` when available; otherwise it returns `forecast` explicitly. Each response includes region ID, measurement kind, interval bounds, retrieval time, age, freshness, source API name, and exact request URL.
+Each response includes region ID, measurement kind (`actual`/`forecast`), interval status (`upcoming`/`in_progress`/`completed`), interval bounds, retrieval time, age from interval start, lag since interval end, freshness flag, source API name, and exact request URL.
 
-Freshness is accepted only if the interval has not expired, its start is not in the future, and its age is within `NESO_MAX_AGE_SECONDS`. Failures are surfaced as service unavailable; no synthetic or last-known-good reading is mislabeled as current. The existing project does not yet persist raw upstream payloads; immutable evidence retention belongs in the next data-platform stage.
+Freshness is bounded by `NESO_MAX_AGE_SECONDS` measured from interval start. A completed interval is not automatically stale: a recent `actual` may be returned as the latest estimate within that age limit. A completed `forecast` is returned explicitly with `interval_status=completed` and `is_fresh=false`; future forecasts are identified as `upcoming`. Readings older than the configured age limit remain rejected. `interval_lag_seconds` measures time after the interval ended; the API response does not expose a separate publication timestamp, so this is not a measured publication delay. The source may have publication latency that cannot be independently quantified from this payload. Raw upstream payload persistence is not yet implemented.
 
 Default region ID is 13. Confirm/change it for the intended GB operating region before relying on location-specific results. The adapter does not infer a location from user identity or IP.
 
