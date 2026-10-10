@@ -1,4 +1,4 @@
-name: CI
+name: CI and security
 
 on:
   pull_request:
@@ -12,12 +12,45 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -r requirements.txt
+      - run: python -m pip install -r requirements-dev.txt pip-audit
+      - run: python -m pip check
       - run: python -m ruff check .
-      - run: python -m pytest -q
+      - run: python -m pytest -q --cov=app --cov-report=term-missing --cov-fail-under=85
+      - run: python -m pip_audit -r requirements-dev.txt --strict
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  container:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: green-energy-dispatch-dashboard:ci
+      - uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: green-energy-dispatch-dashboard:ci
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH

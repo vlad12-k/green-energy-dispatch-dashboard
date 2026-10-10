@@ -20,9 +20,9 @@ async def test_health_endpoint():
 
 
 @pytest.mark.asyncio
-async def test_openapi_exists():
+async def test_openapi_is_disabled_by_default():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/openapi.json")
 
-    assert response.status_code == 200
+    assert response.status_code == 404

@@ -1,104 +1,57 @@
 # Green Energy Dispatch Dashboard
 
-A portfolio-grade **UK grid-aware dispatch simulator**. It demonstrates a practical AI/energy platform boundary: ingest verified grid signals, produce explainable forecasts, and apply a transparent carbon policy before any simulated dispatch recommendation is shown.
+A UK grid-aware energy operations platform in active development. The current slice integrates the NESO Carbon Intensity API read-only, validates regional readings and freshness, preserves source/interval provenance, and evaluates an illustrative simulated dispatch policy.
 
-> **Safety boundary:** this project is not connected to an energy market, broker, balancing mechanism, or physical asset. It never executes financial trades or energy dispatches. Every decision is a simulation designed to demonstrate engineering, observability, and governance patterns.
+> **Safety boundary:** no market, balancing mechanism, or physical device is connected. The service never places trades or issues control commands. Carbon thresholds are illustrative only and not operational guidance.
 
-## Why this project
+## Current capabilities
 
-It is designed for AI Engineering, MLOps, Data Engineering, and Digital Solutions roles in the UK energy and climate-tech market. The finished product will show:
+- `GET /health` — single service health endpoint.
+- `GET /api/v1/energy/carbon-intensity` — live NESO regional intensity reading; returns actual when available, otherwise explicitly marks forecast. Stale, malformed, or unavailable upstream data fails closed with HTTP 503; no fabricated fallback is used.
+- `POST /api/v1/energy/carbon-gate` — transparent simulated `allow`, `defer`, or `block` recommendation based on an explicitly illustrative policy.
+- Pydantic validation rejects negative, non-finite, malformed, and unexpected request fields.
+- Production defaults disable debug mode and interactive OpenAPI docs.
 
-- typed FastAPI APIs and automated tests;
-- carbon-aware, explainable policy controls;
-- reproducible data ingestion and provenance;
-- forecast evaluation rather than unsupported prediction claims;
-- containerised delivery, CI, monitoring, and a small operator dashboard.
+## Architecture and roadmap
 
-## Current vertical slice
-
-The initial backend slice is working now:
-
-- `GET /health` — service health/readiness metadata;
-- `POST /api/v1/energy/carbon-gate` — returns an **allow**, **defer**, or **block** recommendation for a supplied carbon-intensity measurement;
-- request validation rejects invalid negative intensity values;
-- tests cover all three policy branches and input validation.
-
-Policy thresholds are intentionally explicit and currently illustrative:
-
-| Carbon intensity | Simulated recommendation |
-|---:|---|
-| ≤150 gCO₂e/kWh | `allow` |
-| >150 and ≤300 gCO₂e/kWh | `defer` |
-| >300 gCO₂e/kWh | `block` |
-
-They are not operational trading rules and will become configurable only after a documented data/validation phase.
-
-## Architecture
-
-```text
-UK grid/intensity data ──> ingestion & validation ──> PostgreSQL/time-series store
-                                                        │
-Forecast evaluation/training ──> versioned model ──────┼──> FastAPI policy/API ──> dashboard
-                                                        │              │
-                                                provenance/metrics <───┴──> Prometheus/Grafana
-```
-
-Read the full design, system boundaries, and delivery roadmap in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
-## Tech stack
-
-| Concern | Technology |
-|---|---|
-| API | Python 3.12, FastAPI, Pydantic v2 |
-| Testing & quality | pytest, httpx, Ruff, GitHub Actions |
-| Data / ML roadmap | Pandas, scikit-learn, PyTorch |
-| Production roadmap | PostgreSQL/TimescaleDB, Docker, Prometheus, Grafana |
-| Web UI roadmap | React, TypeScript, Tailwind CSS |
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for system boundaries, current implementation status, data provenance, security assumptions, and staged product roadmap. PostgreSQL persistence, forecast evaluation, energy optimisation, React UI, and production hosting are not yet implemented; the repo does not claim otherwise.
 
 ## Quick start
 
 ```bash
-cd /Users/maximum/GreenEnergyTradingDashboard
+git clone https://github.com/vlad12-k/green-energy-dispatch-dashboard.git
+cd green-energy-dispatch-dashboard
 python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --reload
+cp .env.example .env
+python -m uvicorn app.main:app
 ```
 
-Open API docs at `http://127.0.0.1:8000/docs`.
+Defaults are production-safe (`APP_ENV=production`, `DEBUG=false`); `/docs`, `/redoc`, and `/openapi.json` are disabled. For trusted local development only, set `APP_ENV=development` and `DEBUG=true` in `.env`.
 
-Evaluate the policy:
+Fetch the configured GB region (default NESO region ID 13):
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/energy/carbon-gate \
-  -H 'content-type: application/json' \
-  -d '{"carbon_intensity_gco2_per_kwh":120}'
+curl http://127.0.0.1:8000/api/v1/energy/carbon-intensity
 ```
 
-Expected response:
+Configure `NESO_REGION_ID`, `NESO_MAX_AGE_SECONDS`, and `NESO_TIMEOUT_SECONDS` as needed. The API response includes the intensity, actual/forecast designation, region identifier, interval start/end, retrieval time, freshness age, source API, and source URL.
 
-```json
-{
-  "decision": "allow",
-  "reason": "Carbon intensity is within the low-carbon dispatch threshold.",
-  "carbon_intensity_gco2_per_kwh": 120.0
-}
-```
-
-## Quality checks
+## Development checks
 
 ```bash
-.venv/bin/python -m pytest -q
-.venv/bin/python -m ruff check .
+python -m pip install -r requirements-dev.txt
+python -m pytest -q --cov=app --cov-fail-under=85
+ruff check .
+pip-audit -r requirements-dev.txt
 ```
 
-## Roadmap
+Docker Compose builds and runs the API as a non-root user:
 
-1. **Data foundation:** documented source adapter, freshness checks, immutable raw evidence, and a historical replay fixture.
-2. **Forecasting:** baseline model, time-series split, error metrics, model cards, and only then an LSTM comparison.
-3. **Platform:** PostgreSQL/TimescaleDB, Prometheus/Grafana, Docker Compose, and failure-mode tests.
-4. **Operator experience:** React dashboard with provenance, confidence, policy explanation, and scenario replay.
-5. **Deployment:** staging environment, CI/CD, security scanning, and production runbook.
+```bash
+docker compose up --build
+```
 
 ## License
 

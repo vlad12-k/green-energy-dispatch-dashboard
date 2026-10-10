@@ -16,7 +16,7 @@ async def test_carbon_gate_allows_simulated_dispatch_at_low_intensity():
     assert response.status_code == 200
     assert response.json() == {
         "decision": "allow",
-        "reason": "Carbon intensity is within the low-carbon dispatch threshold.",
+        "reason": "Carbon intensity is within the illustrative low-carbon threshold.",
         "carbon_intensity_gco2_per_kwh": 120.0,
     }
 

@@ -1,72 +1,88 @@
-# Architecture
+# Architecture and product roadmap
 
 ## Product boundary
 
-Green Energy Dispatch Dashboard evaluates data-driven **simulated** dispatch recommendations. It is a demonstrator for responsible AI and digital-energy solution design.
+Green Energy Dispatch is an **intelligent energy operations platform** under staged development. The delivered slice reads NESO Carbon Intensity data and evaluates a simulated, explainable dispatch policy. It is not connected to an electricity market, balancing mechanism, or physical asset; it never places trades or issues control commands.
 
-It does **not** connect to an electricity-market participant, an exchange, a broker, a National Grid control system, or a physical device. It does not place trades or issue control commands.
-
-## C4-style context
+## System context
 
 ```text
-Grid-data provider ──> Data ingestion ──> Evidence store
-                                            │
-Operator <── dashboard <── API/policy <─────┼── forecast service
-                                            │
-                                      telemetry/metrics ──> Grafana
+NESO Carbon Intensity API
+         │ HTTPS read-only
+         ▼
+FastAPI adapter ──> schema / provenance / freshness validation
+         │                              │
+         ├── simulated policy           └──> future evidence store (PostgreSQL)
+         │
+         └──> API client / future React operator dashboard
+
+Future: historical replay → forecast evaluation → energy optimisation → observability
 ```
 
-### Containers (target state)
+## Implemented now
 
-| Container | Responsibility | Status |
+| Component | Responsibility | State |
 |---|---|---|
-| FastAPI service | API boundary, validation, carbon policy, policy explanation | implemented first slice |
-| Ingestion worker | fetch data, preserve source/timestamp/hash, freshness validation | planned |
-| PostgreSQL/TimescaleDB | application state, aggregated time series, provenance references | planned |
-| ML training job | train and evaluate reproducible baseline and later neural models | planned |
-| React UI | explain decisions, show provenance and scenario replay | planned |
-| Prometheus/Grafana | technical metrics, SLOs and operational dashboards | planned |
+| FastAPI | `/health`, `/api/v1/energy/carbon-intensity`, `/api/v1/energy/carbon-gate` | Implemented |
+| NESO adapter | HTTPS regional request, parsing, provenance, freshness, timeouts, upstream error handling | Implemented, read-only |
+| Carbon policy | Transparent simulated `allow`/`defer`/`block` thresholds | Implemented; illustrative only |
+| PostgreSQL / time-series | Persist observations, provenance, and later operational events | Not implemented |
+| Forecast/optimisation | Evaluate baseline forecasts and schedule flexible loads | Not implemented |
+| React operator UI | Show live signal age, source, forecast/actual distinction, and recommendation | Not implemented |
+| Production hosting | Deployment, SLOs, alerting, backups, runbooks | Not implemented |
 
-## Decision flow
+## Data contract and provenance
 
-1. A caller supplies a carbon-intensity value or, later, an evidence-backed ingestion record.
-2. The API validates the value and sends it to the policy service.
-3. The policy produces `allow`, `defer`, or `block` with a human-readable reason.
-4. The API returns the decision. It does not execute the decision.
-5. A future version records provenance, evaluation version, timestamp, and policy version.
+The regional API response exposes an interval (`from`, `to`) and intensity values (`forecast`, `actual`, `index`). The adapter selects `actual` when available; otherwise it returns `forecast` explicitly. Each response includes region ID, measurement kind, interval bounds, retrieval time, age, freshness, source API name, and exact request URL.
 
-## Current carbon policy
+Freshness is accepted only if the interval has not expired, its start is not in the future, and its age is within `NESO_MAX_AGE_SECONDS`. Failures are surfaced as service unavailable; no synthetic or last-known-good reading is mislabeled as current. The existing project does not yet persist raw upstream payloads; immutable evidence retention belongs in the next data-platform stage.
+
+Default region ID is 13. Confirm/change it for the intended GB operating region before relying on location-specific results. The adapter does not infer a location from user identity or IP.
+
+## Security and runtime assumptions
+
+- NESO access is read-only over HTTPS; redirects are disabled.
+- Production defaults use `APP_ENV=production`, `DEBUG=false`; debug is rejected in production.
+- Interactive API documentation is disabled unless debug is explicitly enabled in a non-production environment.
+- Upstream network timeout and freshness thresholds are bounded settings.
+- Docker runtime uses a non-root UID and a health check.
+- CI runs tests, lint, dependency audit, secret scanning, and container vulnerability scanning.
+- No secrets are required for the NESO endpoint.
+
+## NESO Carbon Intensity API
+
+The service requests the NESO documented regional endpoint `/regional/regionid/{regionid}` over HTTPS. The feed includes interval bounds and actual/forecast intensity values. This is a read-only carbon-intensity feed; it is not a price forecast, a dispatch instruction, or a control signal. See the [official NESO Carbon Intensity API documentation](https://carbon-intensity.github.io/api-definitions/).
+
+## Illustrative simulated carbon policy
 
 ```text
-≤150 gCO₂e/kWh     allow
-151–300 gCO₂e/kWh  defer
->300 gCO₂e/kWh     block
+≤150 gCO₂e/kWh      allow
+>150 and ≤300       defer
+>300                block
 ```
 
-The thresholds are illustrative. They must not be presented as an operational recommendation until validated against a defined carbon source, commercial objective, safety analysis, and UK-market constraints.
+This is a software demonstration, not an energy-market rule, safety controller, or validated commercial recommendation. Keep policy thresholds configurable/versioned and do not connect actuation without separate engineering, legal, safety, and operational review.
 
-## Key architecture decisions
+## Decisions
 
-### Explainable policy before opaque optimisation
-The first control is a deterministic policy because its thresholds and reason are reviewable. A forecasting model may estimate future signals, but a forecast must not obscure the enforcement rule.
+### Provenance and freshness before optimisation
+Data correctness and source traceability precede forecasts. A stale upstream response must not be silently represented as real-time.
 
-### Data provenance before model sophistication
-A credible portfolio project needs a source, timestamp, freshness result, input hash, and historical replay path before it needs an LSTM. This prevents a dashboard from making untraceable claims.
+### Baseline before complex ML
+Establish historical, leakage-safe baselines and operating metrics before comparing more complex forecasting models. Model complexity is justified by measured improvement, not appearance.
 
-### Baseline before neural network
-The forecasting work should compare seasonal-naïve and gradient-boosted baselines with a temporal holdout. PyTorch LSTM work proceeds only if it improves evaluated metrics under the same split.
+### Separate recommendation from execution
+The platform can explain a recommendation without having authority to perform a physical or financial action. This boundary remains explicit in APIs and UI.
 
-### No live execution
-Integration with a market or asset would add regulatory, safety, security, and commercial risks that are inappropriate for a portfolio demonstrator. The product remains simulation-only.
+## Staged product roadmap
 
-## Non-functional requirements
+1. **Data foundation:** persist raw payloads and normalised observations with source hash, retrieval time, interval, freshness result, and schema version in PostgreSQL; migrations and deterministic replay.
+2. **Data operations:** scheduled ingestion, idempotency, retries/backoff, rate-limit handling, health/metrics, stale-source alerting, backup/restore test.
+3. **Forecasting:** historical dataset and temporal validation; seasonal-naïve baseline, error and calibration metrics, model card, monitored inference. Add neural models only when results justify them.
+4. **Energy optimisation:** define a real load/asset-flexibility simulation, constraints and objective; run scenario/backtest evaluation and record explainable decisions. No live actuation.
+5. **React dashboard:** current and historical regional signals, clear actual/forecast/stale labels, provenance, policy settings and scenario replay; accessible responsive design.
+6. **Production readiness:** hardened container, SBOM, pinned/updated dependencies, CI gates, staging, IaC, secret handling, SLOs, alerts, runbooks, and security review.
 
-- **Reproducibility:** a known historical fixture replays to the same result.
-- **Validation:** malformed, stale, and missing evidence causes a visible failure.
-- **Observability:** request/error/decision metrics are exposed without sensitive source data.
-- **Security:** no secrets in Git; least-privilege runtime configuration; dependency scanning in CI.
-- **Accessibility:** dashboard decisions communicate state without colour alone.
+## Acceptance evidence
 
-## Delivery evidence for recruiters
-
-The final repository should include: ADRs, C4 diagrams, API contract, test coverage, model card, data-source record, screenshots of monitoring, a deployed demo with no credentials required, and a short two-minute walkthrough video.
+A completed stage should ship: automated tests, reproducible sample/replay, architecture decision record for material choices, observed API contract, failure-mode behavior, security scan output, and documentation that distinguishes implemented functionality from roadmap items.
