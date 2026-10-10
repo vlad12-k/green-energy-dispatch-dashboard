@@ -43,6 +43,23 @@ def test_production_settings_reject_debug_and_http_upstream() -> None:
         Settings(neso_api_base_url="http://example.test")
 
 
+@pytest.mark.parametrize("app_env", ["development", "testing", "production"])
+def test_settings_accept_only_supported_environment_names(app_env: str) -> None:
+    assert Settings(app_env=app_env).app_env == app_env
+
+
+@pytest.mark.parametrize("app_env", ["test", "staging", "prod", "", "Production"])
+def test_settings_reject_unsupported_environment_names(app_env: str) -> None:
+    with pytest.raises(ValidationError):
+        Settings(app_env=app_env)
+
+
+def test_debug_is_allowed_only_outside_production() -> None:
+    assert Settings(app_env="development", debug=True).debug is True
+    assert Settings(app_env="testing", debug=True).debug is True
+    assert Settings(app_env="production").debug is False
+
+
 @pytest.mark.asyncio
 async def test_carbon_intensity_endpoint_returns_fresh_source_evidence(monkeypatch) -> None:
     now = datetime.now(UTC)
@@ -100,3 +117,29 @@ async def test_carbon_intensity_endpoint_returns_503_on_upstream_failure(monkeyp
 
     assert response.status_code == 503
     assert "timed out" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"data": [None]},
+        {"data": [{"regionid": 13, "shortname": "London", "data": [None]}]},
+    ],
+)
+@pytest.mark.asyncio
+async def test_carbon_intensity_endpoint_returns_503_for_malformed_json_shapes(
+    monkeypatch, payload
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    client = NesoCarbonIntensityClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(
+        "app.api.v1.energy.NesoCarbonIntensityClient", lambda **_kwargs: client
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as api:
+        response = await api.get("/api/v1/energy/carbon-intensity")
+
+    assert response.status_code == 503
+    assert "NESO Carbon Intensity API data rejected" in response.json()["detail"]
