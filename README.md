@@ -14,7 +14,7 @@ A UK grid-aware energy operations platform in active development. The current sl
 
 ## Architecture and roadmap
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for system boundaries, current implementation status, data provenance, security assumptions, and staged product roadmap. See [`docs/SECURITY.md`](docs/SECURITY.md) for container scan evidence and policy. Optional PostgreSQL storage of NESO source evidence and normalised observations, one-shot ingestion, offline replay, an opt-in standalone regional collector, historical dataset export, and simple chronological forecast baselines are implemented. Follow [`docs/DATABASE_AND_REPLAY.md`](docs/DATABASE_AND_REPLAY.md) for database setup and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for historical-data limits. Energy optimisation, React UI, and production hosting are not implemented.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for system boundaries, current implementation status, data provenance, security assumptions, and staged product roadmap. See [`docs/SECURITY.md`](docs/SECURITY.md) for container scan evidence and policy. Optional PostgreSQL storage of NESO source evidence and normalised observations, one-shot ingestion, offline replay, an opt-in standalone regional collector, historical dataset export, and simple chronological forecast baselines are implemented. Follow [`docs/DATABASE_AND_REPLAY.md`](docs/DATABASE_AND_REPLAY.md) for database setup and [`docs/NESO_HISTORICAL_ACQUISITION.md`](docs/NESO_HISTORICAL_ACQUISITION.md) for the official regional forecast archive contract and controlled acquisition workflow. Energy optimisation, React UI, and production hosting are not implemented.
 
 ## Quick start
 
