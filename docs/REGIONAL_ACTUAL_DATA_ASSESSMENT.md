@@ -1,6 +1,6 @@
 # Regional Actual Data Assessment — London Pilot
 
-**Evidence snapshot:** 11 October 2026
+**Evidence snapshot:** 11 October 2026; bounded live requests verified through `2026-10-11T20:10:03.506733Z`
 **Pilot:** NESO region 13, London (`UKPN London`)
 **Decision:** no defensible London regional historical actual target was verified. No source adapter or database migration is included.
 
@@ -23,7 +23,7 @@ This is an evidence-bounded result, not a claim that no future or unexamined reg
 ### NESO Carbon Intensity API — regional
 
 - Official documentation: [API definitions](https://carbonintensity.github.io/api-definitions/); [API root](https://api.carbonintensity.org.uk/).
-- Direct read-only samples: [London, 1 June 2025](https://api.carbonintensity.org.uk/regional/intensity/2025-06-01T00:00Z/2025-06-02T00:00Z/regionid/13) and [London, 10 October 2026](https://api.carbonintensity.org.uk/regional/intensity/2026-10-10T00:00Z/2026-10-11T00:00Z/regionid/13). Both identify `regionid: 13`, `shortname: London`, `dnoregion: UKPN London`; sampled half-hour rows contain `intensity.forecast` and no `intensity.actual`.
+- Direct read-only samples: [London, 1 June 2025](https://api.carbonintensity.org.uk/regional/intensity/2025-06-01T00:00Z/2025-06-02T00:00Z/regionid/13) and [London, 10 October 2026](https://api.carbonintensity.org.uk/regional/intensity/2026-10-10T00:00Z/2026-10-11T00:00Z/regionid/13). Each returned 49 half-hour records (including the preceding `23:30Z` interval), with 49 forecast values and zero actual values; region identity was London, region 13. The exact request/response timestamps, counts and response hashes are in the [evidence manifest](../app/services/regional_actual_evidence_manifest.json).
 - A 1 October 2017 London query returned no regional rows. This is a sample only; it does not establish a universal start date.
 - Geography and resolution: 14 GB DNO regions, including London region 13; half-hour periods. Responses expose period `from`/`to`, not an original forecast issue or revision time.
 - The inspected API documentation does not specify a maximum arbitrary historical `from`/`to` range or guarantee the first date of regional history.
@@ -38,7 +38,7 @@ This is an evidence-bounded result, not a claim that no future or unexamined reg
 
 ### NESO national sources
 
-- [National Carbon Intensity API](https://api.carbonintensity.org.uk/intensity/2026-10-10T00:00Z/2026-10-11T00:00Z): the 10 October 2026 sample contained half-hour `forecast` and `actual` fields. NESO describes national `actual` as an estimate based on metered generation, not a direct measurement of emissions. It is GB-wide and cannot be used as a London target. API rows provide period bounds, but the sampled payload has no original publication or revision timestamp. The site documents historical data from 26 September 2017; the inspected API documentation does not state a maximum date-range size.
+- [National Carbon Intensity API](https://api.carbonintensity.org.uk/intensity/2026-10-10T00:00Z/2026-10-11T00:00Z): the bounded response contained 49 half-hour records, each with `forecast` and `actual` fields (including the preceding `23:30Z` interval). NESO describes national `actual` as an estimate based on metered generation, not a direct measurement of emissions. It is GB-wide and cannot be used as a London target. API rows provide period bounds, but the sampled payload has no original publication or revision timestamp. The site documents historical data from 26 September 2017; the inspected API documentation does not state a maximum date-range size. Request details and the response hash are in the evidence manifest.
 - [National Carbon Intensity Forecast dataset](https://www.neso.energy/data-portal/national-carbon-intensity-forecast): national forecast data, reported in `gCO2/kWh`, under the NESO Open Data Licence. A dataset update frequency is not a per-row issue time; forecast vintages were not verified.
 - [Historic generation mix](https://www.neso.energy/data-portal/historic-generation-mix): national history documented from 1 January 2009, updated hourly, with seasonal decomposition used to correct missing or irregular points and data subject to cleansing. It is not regionally mapped to London.
 
@@ -47,7 +47,7 @@ This is an evidence-bounded result, not a claim that no future or unexamined reg
 - Official [dataset and methodology](https://ukpowernetworks.opendatasoft.com/explore/assets/ukpn-carbon-intensity/) and [catalogue API](https://ukpowernetworks.opendatasoft.com/api/explore/v2.1/catalog/datasets/ukpn-carbon-intensity).
 - The beta method uses PI readings matched to ECR generators over 1 MW, fuel factors and a DNO/GSP calculation. Its blended estimate combines local generation with NESO regional **forecast** intensity as a proxy for transmission imports. It excludes unregistered/unmetered generation, omits network losses and sensitivity factors, assigns batteries 0 `gCO2e/kWh`, and may return null where SGT data are unavailable or exports cannot be attributed.
 - The catalogue metadata reports CC BY 4.0. UKPN documents the blended output in `gCO2e/kWh` and input NESO factors in `gCO2/kWh`; the record schema itself has no unit field. No numerical conversion is applied.
-- Direct API snapshot on 11 October 2026: 32,462 rows from `2026-09-11T00:00:00Z` to `2026-10-11T16:00:00Z`; EPN 22,626, SPN 9,836, LPN 0. Only 15,775 rows had a non-null blended-intensity value. The API page exposes a dataset-level modification time, not row-level publication/revision times. Interactive viewing asks users to register/login, although the catalogue and bounded read-only records requests used for this assessment succeeded.
+- Bounded API aggregate snapshot verified at `2026-10-11T20:10:03.506733Z`: 32,603 rows from `2026-09-11T00:00:00Z` to `2026-10-11T19:30:00Z`; EPN 22,725, SPN 9,878, LPN 0. The grouped aggregates report 15,837 non-null blended-intensity values (10,773 EPN; 5,064 SPN). These aggregates were queried serially, not in one transaction, so they are a bounded observation rather than an atomic snapshot. Request parameters and response hashes are in the evidence manifest. The API page exposes dataset-level modification metadata, not row-level publication/revision times. Interactive viewing asks users to register/login, although the catalogue and bounded read-only records requests used for this assessment succeeded.
 - UKPN company coverage includes London, but that does not prove this dataset contains London records: the observed snapshot has no LPN rows. The data are therefore not eligible as a region-13 target on current evidence.
 
 ### Elexon BMRS Insights — B1610
@@ -66,15 +66,17 @@ This is an evidence-bounded result, not a claim that no future or unexamined reg
 
 ## Validation foundation
 
-`app.services.regional_actual_validation` introduces explicit candidate source contracts and a deterministic validator. It checks source identity and official host, target-variable semantics, region ID/name and geography code, exact source unit, measurement classification, finite non-negative value, timezone-aware UTC half-hour interval, requested window, record ID, URL and retrieval provenance. Publication time is reported separately: an otherwise valid target may be usable as a label while remaining ineligible as an as-of-time feature when its publication time is missing or not verified for that source.
+`app.services.regional_actual_validation` introduces explicit candidate source contracts and a deterministic validator. The live NESO regional and national contracts share the existing canonical source identifier `neso-carbon-intensity-api`, but remain distinct by target variable and geography. It checks source identity and official host, target-variable semantics, region ID/name and geography code, exact source unit, measurement classification, finite non-negative value, timezone-aware UTC half-hour interval, requested window, record ID, URL and retrieval provenance.
 
-The batch validator retains row-level reason codes; rejects duplicates; distinguishes revisions only when publication timestamps are verified and uniquely ordered; keeps only the latest verified revision in the canonical accepted target series and marks earlier versions as superseded; rejects conflicting unversioned or same-time observations and mixed measurement semantics; and reports every missing half-hour in the requested window. The production source registry currently marks all evaluated sources ineligible for London actual evaluation. The positive validator contract in tests is synthetic and test-only; it is not an assertion that a real source qualifies.
+Publication provenance and point-in-time availability are separate. `publication_provenance_verified` means the source contract attests the supplied timestamp and the row's timestamp is syntactically valid and consistent; it does not claim availability at any forecast origin. The optional `forecast_origin` must be timezone-aware. Only when it is supplied does the validator set `available_at_forecast_origin`, and only if the interval has ended, the record was retrieved, and the verified publication timestamp is no later than that origin. An unverified/missing timestamp yields unknown (`null`), while a publication or retrieval after the origin yields unavailable (`false`). Retrieval time remains distinct from original source publication time.
+
+The batch validator retains row-level reason codes; rejects duplicates; distinguishes revisions only when publication timestamps are source-verified and uniquely ordered; keeps only the latest verified revision in the canonical accepted target series and marks earlier versions as superseded; rejects conflicting unversioned or same-time observations and mixed measurement semantics; and reports every missing half-hour in the requested window. `target_window_complete` reports interval coverage only. It does not claim sufficient history, chronological split validity, or forecasting-evaluation readiness. The production source registry currently marks all evaluated sources ineligible for London actual evaluation. The positive validator contract in tests is synthetic and test-only; it is not an assertion that a real source qualifies.
 
 The existing `app.services.historical_dataset.build_dataset` remains authoritative for persisted NESO data, actual/forecast separation, source-specific units, deterministic revision ordering, duplicate/conflict counts and missing intervals. Existing PostgreSQL persistence and offline replay are retained without migrations. No database writes or live source adapters were added.
 
 ## Reproducibility
 
-The pinned source assessment is deterministic and makes no network or database calls:
+The pinned source assessment is deterministic and makes no network or database calls. It embeds the evidence manifest, which separates freshly verified bounded responses from earlier externally reported claims:
 
 ```bash
 python -m app.assess_regional_actual_sources
@@ -85,6 +87,8 @@ To save its JSON output for a review or downstream process:
 ```bash
 python -m app.assess_regional_actual_sources > regional-actual-source-assessment.json
 ```
+
+The manifest is [`app/services/regional_actual_evidence_manifest.json`](../app/services/regional_actual_evidence_manifest.json). It records exact request URLs and parameters, UTC request/verification timestamps, snapshot counts/coverage and SHA-256 hashes for the response bodies captured during the bounded read-only checks. Response bodies were not retained. The archive row-count snapshot and Elexon schema statements are explicitly marked `externally_reported`; their original request/verification timestamps and response hashes were not preserved and are `null`, not reconstructed. No bulk download was performed. The NESO API returned one preceding half-hour row in each requested one-day window; this is recorded rather than silently clipped.
 
 Candidate-target validation and source-specific unit assertions are covered by offline tests. Existing PostgreSQL tests use the repository's disposable per-test schema and real Alembic migrations; they do not modify the user's persistent database.
 

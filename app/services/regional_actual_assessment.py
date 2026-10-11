@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
+
+from app.services.intensity_units import LIVE_NESO_SOURCE_API
 
 
 @dataclass(frozen=True)
@@ -27,6 +30,7 @@ class SourceAssessment:
     missing_or_unknown_metadata: tuple[str, ...]
     eligible_for_london_actual_evaluation: bool
     eligibility_reasons: tuple[str, ...]
+    source_variant: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result = json.loads(json.dumps(asdict(self), ensure_ascii=False))
@@ -99,7 +103,7 @@ REGIONAL_ACTUAL_SOURCE_ASSESSMENTS: tuple[SourceAssessment, ...] = (
         ),
     ),
     SourceAssessment(
-        source_id="neso-national-carbon-intensity-api",
+        source_id=LIVE_NESO_SOURCE_API,
         publisher="NESO Carbon Intensity API",
         documentation=(
             "https://api.carbonintensity.org.uk/",
@@ -108,7 +112,7 @@ REGIONAL_ACTUAL_SOURCE_ASSESSMENTS: tuple[SourceAssessment, ...] = (
         ),
         access=(
             "Public REST endpoint GET /intensity/{from}/{to}; the 10 October 2026 "
-            "one-day response contained national half-hour forecast and actual fields."
+            "bounded response returned 49 national half-hour rows with forecast and actual fields."
         ),
         source_provenance={
             "endpoint_template": "/intensity/{from}/{to}",
@@ -127,7 +131,7 @@ REGIONAL_ACTUAL_SOURCE_ASSESSMENTS: tuple[SourceAssessment, ...] = (
         geographic_scope="Great Britain national system",
         time_resolution="30 minutes",
         historical_coverage={
-            "verified_sample": "2026-10-10T00:00:00Z/2026-10-11T00:00:00Z",
+            "verified_sample": "2026-10-10T00:00:00Z/2026-10-11T00:00:00Z; 49 rows including the preceding half-hour",
             "official_site_start": "2017-09-26",
             "api_maximum_range": None,
         },
@@ -160,6 +164,7 @@ REGIONAL_ACTUAL_SOURCE_ASSESSMENTS: tuple[SourceAssessment, ...] = (
             "national_estimated_actual_is_not_a_regional_measurement",
             "unit_semantics_require_source_owner_clarification",
         ),
+        source_variant="national",
     ),
     SourceAssessment(
         source_id="neso-national-carbon-intensity-forecast",
@@ -210,7 +215,7 @@ REGIONAL_ACTUAL_SOURCE_ASSESSMENTS: tuple[SourceAssessment, ...] = (
         ),
     ),
     SourceAssessment(
-        source_id="neso-regional-carbon-intensity-api",
+        source_id=LIVE_NESO_SOURCE_API,
         publisher="NESO Carbon Intensity API",
         documentation=(
             "https://api.carbonintensity.org.uk/",
@@ -281,6 +286,7 @@ REGIONAL_ACTUAL_SOURCE_ASSESSMENTS: tuple[SourceAssessment, ...] = (
             "forecast_vintage_not_verified",
             "unit_semantics_require_source_owner_clarification",
         ),
+        source_variant="regional",
     ),
     SourceAssessment(
         source_id="neso-regional-carbon-intensity-forecast-datastore",
@@ -386,17 +392,18 @@ REGIONAL_ACTUAL_SOURCE_ASSESSMENTS: tuple[SourceAssessment, ...] = (
         time_resolution="30 minutes",
         historical_coverage={
             "snapshot_date": "2026-10-11",
-            "record_count": 32462,
+            "verified_at_utc": "2026-10-11T20:10:03.506733Z",
+            "record_count": 32603,
             "coverage_start": "2026-09-11T00:00:00Z",
-            "coverage_end": "2026-10-11T16:00:00Z",
-            "epn_record_count": 22626,
-            "spn_record_count": 9836,
+            "coverage_end": "2026-10-11T19:30:00Z",
+            "epn_record_count": 22725,
+            "spn_record_count": 9878,
             "lpn_record_count": 0,
-            "non_null_blended_intensity_count": 15775,
+            "non_null_blended_intensity_count": 15837,
         },
         publication_and_revision_timestamps=(
-            "The portal exposes a dataset-level modification time (2026-10-11T16:15:16Z) "
-            "but no per-record publication or revision timestamp. half_hour_period is "
+            "The portal exposes dataset-level modification metadata but no per-record "
+            "publication or revision timestamp. half_hour_period is "
             "the observation interval, not an issue time."
         ),
         unit_contract=(
@@ -507,11 +514,13 @@ REGIONAL_ACTUAL_SOURCE_ASSESSMENTS: tuple[SourceAssessment, ...] = (
 def regional_actual_assessment_report() -> dict[str, Any]:
     """Return the pinned source findings without network or database access."""
     sources = sorted(
-        REGIONAL_ACTUAL_SOURCE_ASSESSMENTS, key=lambda source: source.source_id
+        REGIONAL_ACTUAL_SOURCE_ASSESSMENTS,
+        key=lambda source: (source.source_id, source.source_variant or ""),
     )
     return {
-        "assessment_version": 1,
+        "assessment_version": 2,
         "evidence_snapshot_date": "2026-10-11",
+        "evidence_manifest": _load_evidence_manifest(),
         "pilot_region": {
             "region_id": 13,
             "name": "London",
@@ -590,3 +599,10 @@ def regional_actual_assessment_json() -> str:
         indent=2,
         sort_keys=True,
     )
+
+
+def _load_evidence_manifest() -> dict[str, Any]:
+    manifest_path = Path(__file__).with_name(
+        "regional_actual_evidence_manifest.json"
+    )
+    return json.loads(manifest_path.read_text(encoding="utf-8"))

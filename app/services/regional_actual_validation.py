@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-import math
 from types import MappingProxyType
-from typing import Iterable, Mapping
+from typing import cast
 from urllib.parse import urlsplit
+
+from app.services.intensity_units import (
+    HISTORICAL_NESO_SOURCE_API,
+    LIVE_NESO_SOURCE_API,
+)
 
 
 @dataclass(frozen=True)
@@ -50,7 +56,8 @@ class CandidateRecordDecision:
     source_id: str
     source_record_id: str | int | None
     eligible_for_region_13_actual: bool
-    available_as_of_feature: bool
+    publication_provenance_verified: bool
+    available_at_forecast_origin: bool | None
     rejection_reasons: tuple[str, ...]
     readiness_reasons: tuple[str, ...]
 
@@ -63,14 +70,16 @@ class CandidateTargetReport:
     conflicting_observation_count: int
     revision_count: int
     missing_intervals: tuple[datetime, ...]
-    actual_target_evaluation_ready: bool
-    as_of_feature_availability: bool
+    target_window_complete: bool
+    as_of_feature_availability_at_origin: bool | None
 
 
-SOURCE_CONTRACTS: Mapping[str, SourceContract] = MappingProxyType(
+SOURCE_CONTRACTS: Mapping[str | tuple[str, str], SourceContract] = cast(
+    Mapping[str | tuple[str, str], SourceContract],
+    MappingProxyType(
     {
-        "neso-regional-carbon-intensity-api": SourceContract(
-            source_id="neso-regional-carbon-intensity-api",
+        (LIVE_NESO_SOURCE_API, "regional_carbon_intensity"): SourceContract(
+            source_id=LIVE_NESO_SOURCE_API,
             target_variable="regional_carbon_intensity",
             geography_codes=("NESO-13",),
             region_id=13,
@@ -81,8 +90,8 @@ SOURCE_CONTRACTS: Mapping[str, SourceContract] = MappingProxyType(
             eligibility_reasons=("regional_actual_not_evidenced",),
             official_hosts=("api.carbonintensity.org.uk",),
         ),
-        "neso-regional-carbon-intensity-forecast-datastore": SourceContract(
-            source_id="neso-regional-carbon-intensity-forecast-datastore",
+        (HISTORICAL_NESO_SOURCE_API, "regional_carbon_intensity"): SourceContract(
+            source_id=HISTORICAL_NESO_SOURCE_API,
             target_variable="regional_carbon_intensity",
             geography_codes=("NESO-13",),
             region_id=13,
@@ -93,8 +102,8 @@ SOURCE_CONTRACTS: Mapping[str, SourceContract] = MappingProxyType(
             eligibility_reasons=("forecast_not_actual", "forecast_vintage_missing"),
             official_hosts=("api.neso.energy",),
         ),
-        "neso-national-carbon-intensity-api": SourceContract(
-            source_id="neso-national-carbon-intensity-api",
+        (LIVE_NESO_SOURCE_API, "national_carbon_intensity"): SourceContract(
+            source_id=LIVE_NESO_SOURCE_API,
             target_variable="national_carbon_intensity",
             geography_codes=("GB",),
             region_id=None,
@@ -105,7 +114,7 @@ SOURCE_CONTRACTS: Mapping[str, SourceContract] = MappingProxyType(
             eligibility_reasons=("geographic_scope_mismatch_national_only",),
             official_hosts=("api.carbonintensity.org.uk",),
         ),
-        "neso-national-carbon-intensity-forecast": SourceContract(
+        ("neso-national-carbon-intensity-forecast", "national_carbon_intensity"): SourceContract(
             source_id="neso-national-carbon-intensity-forecast",
             target_variable="national_carbon_intensity",
             geography_codes=("GB",),
@@ -117,7 +126,7 @@ SOURCE_CONTRACTS: Mapping[str, SourceContract] = MappingProxyType(
             eligibility_reasons=("forecast_not_actual", "geographic_scope_mismatch_national_only"),
             official_hosts=("www.neso.energy", "api.neso.energy"),
         ),
-        "neso-historic-generation-mix": SourceContract(
+        ("neso-historic-generation-mix", "national_generation_mix"): SourceContract(
             source_id="neso-historic-generation-mix",
             target_variable="national_generation_mix",
             geography_codes=("GB",),
@@ -129,7 +138,7 @@ SOURCE_CONTRACTS: Mapping[str, SourceContract] = MappingProxyType(
             eligibility_reasons=("geographic_scope_mismatch_national_only",),
             official_hosts=("www.neso.energy", "api.neso.energy"),
         ),
-        "ukpn-carbon-intensity": SourceContract(
+        ("ukpn-carbon-intensity", "regional_carbon_intensity"): SourceContract(
             source_id="ukpn-carbon-intensity",
             target_variable="regional_carbon_intensity",
             geography_codes=("EPN", "SPN"),
@@ -144,7 +153,7 @@ SOURCE_CONTRACTS: Mapping[str, SourceContract] = MappingProxyType(
             ),
             official_hosts=("ukpowernetworks.opendatasoft.com",),
         ),
-        "elexon-bmrs-b1610": SourceContract(
+        ("elexon-bmrs-b1610", "metered_generation_energy"): SourceContract(
             source_id="elexon-bmrs-b1610",
             target_variable="metered_generation_energy",
             geography_codes=("BMU",),
@@ -160,6 +169,7 @@ SOURCE_CONTRACTS: Mapping[str, SourceContract] = MappingProxyType(
             official_hosts=("bmrs.elexon.co.uk",),
         ),
     }
+    ),
 )
 
 
@@ -168,9 +178,10 @@ def validate_candidate_targets(
     *,
     requested_start: datetime,
     requested_end: datetime,
-    source_contracts: Mapping[str, SourceContract] = SOURCE_CONTRACTS,
+    source_contracts: Mapping[str | tuple[str, str], SourceContract] = SOURCE_CONTRACTS,
     expected_region_id: int = 13,
     expected_region_name: str = "London",
+    forecast_origin: datetime | None = None,
 ) -> CandidateTargetReport:
     """Validate candidate rows and their one-source, half-hour series semantics.
 
@@ -180,6 +191,9 @@ def validate_candidate_targets(
     """
     start_utc = _window_timestamp(requested_start, "requested_start")
     end_utc = _window_timestamp(requested_end, "requested_end")
+    origin_utc = (
+        _origin_timestamp(forecast_origin) if forecast_origin is not None else None
+    )
     if end_utc <= start_utc:
         raise ValueError("requested_end must be after requested_start")
     if (end_utc - start_utc).total_seconds() % 1800:
@@ -200,6 +214,7 @@ def validate_candidate_targets(
             requested_end=end_utc,
             expected_region_id=expected_region_id,
             expected_region_name=expected_region_name,
+            forecast_origin=origin_utc,
         )
         decisions.append(decision)
         utc_bounds.append((interval_start, interval_end))
@@ -250,7 +265,7 @@ def validate_candidate_targets(
 
         distinct_values = {float(rows[index].value) for index in unique_indices}
         ordered_publications = all(
-            decisions[index].available_as_of_feature
+            decisions[index].publication_provenance_verified
             and rows[index].published_at is not None
             for index in unique_indices
         )
@@ -286,7 +301,7 @@ def validate_candidate_targets(
             canonical_index = max(
                 unique_indices,
                 key=lambda index: (
-                    decisions[index].available_as_of_feature,
+                    decisions[index].publication_provenance_verified,
                     _sortable(rows[index].published_at),
                     str(rows[index].source_record_id),
                     _sortable(rows[index].retrieved_at),
@@ -326,10 +341,18 @@ def validate_candidate_targets(
             missing_intervals.append(point)
         point += timedelta(minutes=30)
 
-    actual_ready = bool(accepted_records) and not missing_intervals
-    as_of_ready = bool(accepted_records) and all(
-        decisions[index].available_as_of_feature for index in accepted_indices
-    )
+    target_window_complete = bool(accepted_records) and not missing_intervals
+    availability_states = [
+        decisions[index].available_at_forecast_origin for index in accepted_indices
+    ]
+    if origin_utc is None or not availability_states:
+        as_of_availability = None
+    elif False in availability_states:
+        as_of_availability = False
+    elif all(state is True for state in availability_states):
+        as_of_availability = True
+    else:
+        as_of_availability = None
     return CandidateTargetReport(
         record_decisions=tuple(decisions),
         accepted_records=accepted_records,
@@ -337,30 +360,34 @@ def validate_candidate_targets(
         conflicting_observation_count=conflict_count,
         revision_count=revision_count,
         missing_intervals=tuple(missing_intervals),
-        actual_target_evaluation_ready=actual_ready,
-        as_of_feature_availability=as_of_ready,
+        target_window_complete=target_window_complete,
+        as_of_feature_availability_at_origin=as_of_availability,
     )
 
 
 def _validate_record(
     row: CandidateTarget,
     *,
-    source_contracts: Mapping[str, SourceContract],
+    source_contracts: Mapping[str | tuple[str, str], SourceContract],
     requested_start: datetime,
     requested_end: datetime,
     expected_region_id: int,
     expected_region_name: str,
+    forecast_origin: datetime | None,
 ) -> tuple[CandidateRecordDecision, datetime | None, datetime | None]:
     reasons: list[str] = []
     readiness: list[str] = []
-    contract = source_contracts.get(row.source_id)
+    contract = source_contracts.get((row.source_id, row.target_variable))
+    if contract is None:
+        contract = source_contracts.get(row.source_id)
     if contract is None:
         return (
             CandidateRecordDecision(
                 source_id=row.source_id,
                 source_record_id=row.source_record_id,
                 eligible_for_region_13_actual=False,
-                available_as_of_feature=False,
+                publication_provenance_verified=False,
+                available_at_forecast_origin=None,
                 rejection_reasons=("unsupported_source",),
                 readiness_reasons=(),
             ),
@@ -401,9 +428,12 @@ def _validate_record(
         reasons.append("unit_contract_unknown")
     elif row.units != contract.units:
         reasons.append("unit_contract_mismatch")
-    if isinstance(row.value, bool) or not isinstance(row.value, (int, float)):
-        reasons.append("value_not_finite_nonnegative")
-    elif not math.isfinite(row.value) or row.value < 0:
+    if (
+        isinstance(row.value, bool)
+        or not isinstance(row.value, (int, float))
+        or not math.isfinite(row.value)
+        or row.value < 0
+    ):
         reasons.append("value_not_finite_nonnegative")
 
     interval_start = _record_timestamp(row.interval_start, "interval", reasons)
@@ -429,7 +459,7 @@ def _validate_record(
         ):
             reasons.append("retrieved_before_interval_end")
 
-    available_as_of_feature = False
+    publication_provenance_verified = False
     published_at: datetime | None = None
     if row.published_at is None:
         readiness.append("publication_time_unverified")
@@ -444,9 +474,17 @@ def _validate_record(
         ):
             reasons.append("publication_timestamp_inconsistent")
         elif contract.publication_time_verified:
-            available_as_of_feature = True
+            publication_provenance_verified = True
         else:
             readiness.append("publication_time_unverified")
+
+    available_at_forecast_origin = _available_at_origin(
+        forecast_origin=forecast_origin,
+        interval_end=interval_end,
+        retrieved_at=retrieved_at,
+        published_at=published_at,
+        publication_provenance_verified=publication_provenance_verified,
+    )
 
     if row.source_record_id is None or (
         isinstance(row.source_record_id, str) and not row.source_record_id.strip()
@@ -464,7 +502,8 @@ def _validate_record(
             source_id=row.source_id,
             source_record_id=row.source_record_id,
             eligible_for_region_13_actual=not reasons,
-            available_as_of_feature=available_as_of_feature and not reasons,
+            publication_provenance_verified=publication_provenance_verified,
+            available_at_forecast_origin=available_at_forecast_origin,
             rejection_reasons=tuple(dict.fromkeys(reasons)),
             readiness_reasons=tuple(dict.fromkeys(readiness)),
         ),
@@ -477,7 +516,6 @@ def _reject(decision: CandidateRecordDecision, reason: str) -> CandidateRecordDe
     return replace(
         decision,
         eligible_for_region_13_actual=False,
-        available_as_of_feature=False,
         rejection_reasons=tuple(dict.fromkeys((*decision.rejection_reasons, reason))),
     )
 
@@ -503,6 +541,42 @@ def _window_timestamp(value: datetime, field: str) -> datetime:
     if not _on_half_hour_grid(result):
         raise ValueError(f"{field} must align to the UTC half-hour grid")
     return result
+
+
+def _origin_timestamp(value: datetime) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("forecast_origin must include a timezone")
+    return value.astimezone(UTC)
+
+
+def _available_at_origin(
+    *,
+    forecast_origin: datetime | None,
+    interval_end: datetime | None,
+    retrieved_at: datetime | None,
+    published_at: datetime | None,
+    publication_provenance_verified: bool,
+) -> bool | None:
+    if forecast_origin is None:
+        return None
+    if interval_end is not None and interval_end > forecast_origin:
+        return False
+    if (
+        publication_provenance_verified
+        and published_at is not None
+        and published_at > forecast_origin
+    ):
+        return False
+    if retrieved_at is not None and retrieved_at > forecast_origin:
+        return False
+    if (
+        interval_end is None
+        or retrieved_at is None
+        or not publication_provenance_verified
+        or published_at is None
+    ):
+        return None
+    return True
 
 
 def _on_half_hour_grid(value: datetime) -> bool:
