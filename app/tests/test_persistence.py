@@ -35,7 +35,7 @@ def sample_payload(now: datetime | None = None) -> dict:
 
 def test_postgres_schema_is_created_by_versioned_migrations(postgres_engine) -> None:
     with postgres_engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0001_neso_evidence"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0002_neso_collector_operations"
 
 
 def test_store_preserves_raw_hash_and_idempotently_links_observation(postgres_engine) -> None:

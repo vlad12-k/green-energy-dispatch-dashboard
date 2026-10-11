@@ -10,12 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.persistence.models import CarbonObservation, RawPayload
 from app.services.neso_carbon_intensity import (
-    CarbonIntensityReading,
     SOURCE_API,
+    CarbonIntensityReading,
     parse_regional_response,
 )
-from app.persistence.models import CarbonObservation, RawPayload
 
 
 class CarbonRepository:
@@ -40,6 +40,31 @@ class CarbonRepository:
         source_api: str = SOURCE_API,
         schema_version: int = 1,
     ) -> RawPayload:
+        raw, _inserted = self.store_payload_with_status(
+            payload,
+            region_id=region_id,
+            source_url=source_url,
+            retrieved_at=retrieved_at,
+            validation_fresh=validation_fresh,
+            validation_error=validation_error,
+            source_api=source_api,
+            schema_version=schema_version,
+        )
+        return raw
+
+    def store_payload_with_status(
+        self,
+        payload: dict[str, Any],
+        *,
+        region_id: int,
+        source_url: str,
+        retrieved_at: datetime,
+        validation_fresh: bool,
+        validation_error: str | None = None,
+        source_api: str = SOURCE_API,
+        schema_version: int = 1,
+    ) -> tuple[RawPayload, bool]:
+        """Store immutable source bytes and report whether this evidence row was created."""
         if retrieved_at.tzinfo is None or retrieved_at.utcoffset() is None:
             raise ValueError("retrieved_at must include a timezone")
         retrieved_at = retrieved_at.astimezone(UTC)
@@ -62,8 +87,8 @@ class CarbonRepository:
             validation_fresh=validation_fresh,
             validation_error=validation_error,
             schema_version=schema_version,
-        ).on_conflict_do_nothing(constraint="uq_raw_payload_identity")
-        self.session.execute(statement)
+        ).on_conflict_do_nothing(constraint="uq_raw_payload_identity").returning(RawPayload.id)
+        inserted_id = self.session.execute(statement).scalar_one_or_none()
         row = self.session.scalar(
             select(RawPayload).where(
                 RawPayload.region_id == region_id,
@@ -73,7 +98,7 @@ class CarbonRepository:
             )
         )
         assert row is not None
-        return row
+        return row, inserted_id is not None
 
     def store_observation(
         self, raw: RawPayload, *, region_id: int
@@ -88,24 +113,24 @@ class CarbonRepository:
     ) -> tuple[CarbonObservation, bool]:
         """Insert idempotently and report whether this transaction created a row."""
         parsed = replay_raw_payload(raw, region_id=region_id)
-        values = dict(
-            raw_payload_id=raw.id,
-            region_id=parsed.region_id,
-            region_name=parsed.region_name,
-            observed_at=parsed.observed_at,
-            valid_until=parsed.valid_until,
-            retrieved_at=parsed.retrieved_at,
-            measurement_type=parsed.measurement_type,
-            intensity_gco2_per_kwh=parsed.intensity_gco2_per_kwh,
-            intensity_index=parsed.intensity_index,
-            interval_status=parsed.interval_status,
-            interval_lag_seconds=parsed.interval_lag_seconds,
-            is_fresh=parsed.is_fresh,
-            age_seconds=parsed.age_seconds,
-            source_api=parsed.source_api,
-            source_url=parsed.source_url,
-            schema_version=1,
-        )
+        values = {
+            "raw_payload_id": raw.id,
+            "region_id": parsed.region_id,
+            "region_name": parsed.region_name,
+            "observed_at": parsed.observed_at,
+            "valid_until": parsed.valid_until,
+            "retrieved_at": parsed.retrieved_at,
+            "measurement_type": parsed.measurement_type,
+            "intensity_gco2_per_kwh": parsed.intensity_gco2_per_kwh,
+            "intensity_index": parsed.intensity_index,
+            "interval_status": parsed.interval_status,
+            "interval_lag_seconds": parsed.interval_lag_seconds,
+            "is_fresh": parsed.is_fresh,
+            "age_seconds": parsed.age_seconds,
+            "source_api": parsed.source_api,
+            "source_url": parsed.source_url,
+            "schema_version": 1,
+        }
         statement = (
             insert(CarbonObservation)
             .values(**values)

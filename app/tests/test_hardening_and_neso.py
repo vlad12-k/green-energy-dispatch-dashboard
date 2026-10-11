@@ -292,8 +292,35 @@ async def test_neso_client_maps_upstream_http_errors_without_fabricating_data() 
         return httpx.Response(503, json={"error": "maintenance"})
 
     client = NesoCarbonIntensityClient(transport=httpx.MockTransport(handler))
-    with pytest.raises(NesoAPIError, match="HTTP 503"):
+    with pytest.raises(NesoAPIError, match="HTTP 503") as failure:
         await client.fetch_latest()
+    assert failure.value.retryable is True
+    assert failure.value.http_status == 503
+
+
+@pytest.mark.asyncio
+async def test_neso_client_preserves_retry_after_for_http_429() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"Retry-After": "17"})
+
+    client = NesoCarbonIntensityClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(NesoAPIError, match="HTTP 429") as failure:
+        await client.fetch_latest()
+    assert failure.value.retryable is True
+    assert failure.value.http_status == 429
+    assert failure.value.retry_after == "17"
+
+
+@pytest.mark.asyncio
+async def test_neso_client_does_not_retry_permanent_http_errors() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400)
+
+    client = NesoCarbonIntensityClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(NesoAPIError, match="HTTP 400") as failure:
+        await client.fetch_latest()
+    assert failure.value.retryable is False
+    assert failure.value.http_status == 400
 
 
 @pytest.mark.asyncio
@@ -302,8 +329,9 @@ async def test_neso_client_maps_timeout_to_service_error() -> None:
         raise httpx.TimeoutException("upstream timeout")
 
     client = NesoCarbonIntensityClient(transport=httpx.MockTransport(handler))
-    with pytest.raises(NesoAPIError, match="timed out"):
+    with pytest.raises(NesoAPIError, match="timed out") as failure:
         await client.fetch_latest()
+    assert failure.value.retryable is True
 
 
 @pytest.mark.asyncio
@@ -312,5 +340,6 @@ async def test_neso_client_rejects_invalid_json() -> None:
         return httpx.Response(200, content=b"not-json")
 
     client = NesoCarbonIntensityClient(transport=httpx.MockTransport(handler))
-    with pytest.raises(NesoAPIError, match="invalid JSON"):
+    with pytest.raises(NesoAPIError, match="invalid JSON") as failure:
         await client.fetch_latest()
+    assert failure.value.retryable is False
