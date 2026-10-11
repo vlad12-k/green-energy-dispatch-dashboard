@@ -69,6 +69,29 @@ Observations carry UTC-aware interval and retrieval timestamps, region, source a
 
 Replay reads a saved raw payload and retrieval context from the database through `replay_raw_payload`; it performs no network request. It verifies SHA-256 and that the JSONB value matches the preserved canonical bytes, then calls the same parser with the original region, source URL, and retrieval time. The parser's freshness bound is widened only for replay so that historically accepted evidence can be deterministically re-evaluated. Evidence with a stored `validation_error` is refused with that rejection reason; `validation_fresh=false` alone is not treated as rejection because an accepted completed forecast can be non-fresh. Replay does not invent absent intervals or reconstruct data that NESO did not return.
 
+## Historical dataset and baseline commands
+
+After the database has been migrated to the current Alembic head and contains retained observations, build a region-specific CSV and availability manifest:
+
+```bash
+DATABASE_URL='postgresql+psycopg://ged:URL_ENCODED_PASSWORD@127.0.0.1:54329/ged' \
+  python -m app.build_historical_dataset --region-id 13 --output artifacts/region-13.csv
+```
+
+The CSV preserves selected actual and all accepted forecast readings with provenance. The canonical dataset hash also includes all accepted actual revision evidence for as-of-time evaluation. The JSON manifest reports accepted actual/forecast coverage, rejected payload count, duplicate/conflict counts for actuals, missing half-hour bins, contiguous spans and a deterministic dataset hash. Rejected evidence is not emitted; gaps are not interpolated. A later retrieval wins when choosing the canonical actual per interval, with hash and raw-payload ID as deterministic tie-breaks.
+
+Evaluate chronological baseline forecasts only when there is enough contiguous accepted actual data:
+
+```bash
+DATABASE_URL='postgresql+psycopg://ged:URL_ENCODED_PASSWORD@127.0.0.1:54329/ged' \
+  python -m app.evaluate_historical_baselines --region-id 13 \
+  --train-fraction 0.8 --horizons 1,2,4,48 --seasonal-periods 48
+```
+
+Use `--cutoff 2026-01-01T00:00:00Z` instead of a fraction when a fixed UTC split is required. Revisions for an interval are kept on the same side of the split; fractional splits keep at least one unique interval on both sides when possible. Horizons and seasonal periods are interval counts (30 minutes by default). Evaluation is rolling-origin within the holdout: forecast origins before the first test interval are excluded, leaving the first `horizon` test targets as warm-up. Actuals from earlier in the test period may be used later only after their interval has ended and their retrieval time is no later than the forecast origin. Persistence chooses the latest eligible revision by interval and retrieval time; seasonal naive applies the same availability rule to the matching prior-season interval. MAE/RMSE include sample counts and target-period bounds. Non-half-hourly or malformed intervals are rejected/marked insufficient. The evaluator exits with status 2 and emits an explicit insufficient-data report rather than returning metrics when requirements are unmet. The CLI does not call NESO and never reports fixture results as real performance.
+
+The project-local `ged` database inspected for this milestone had only `alembic_version` at revision `0001_neso_evidence`; it exposed no `raw_payloads` or `carbon_observations` table and therefore zero accessible actual or forecast observations. This snapshot does not describe other databases or future collector data. Upgrade this database using the existing explicit migration process before running the commands; no history is backfilled by this milestone.
+
 ## Tests and migrations
 
 Install development dependencies with `python -m pip install -r requirements-dev.txt`. Set `TEST_DATABASE_URL` to a disposable PostgreSQL database; each integration test applies the real Alembic migration to a uniquely named temporary schema, then drops that schema. Apply migrations to a separate database with `DATABASE_URL=... alembic upgrade head`, and check model/migration parity with `DATABASE_URL=... alembic check`. Run `TEST_DATABASE_URL=... python -m pytest -q`. Database integration tests require PostgreSQL and are not replaced by SQLite. CI provisions PostgreSQL, applies/checks migrations, then runs the integration suite against isolated schemas.
