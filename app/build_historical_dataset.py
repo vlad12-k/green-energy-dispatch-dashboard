@@ -48,7 +48,9 @@ def main(argv: list[str] | None = None) -> int:
 
     manifest = {
         "region_id": dataset.region_id,
-        "units": "gCO2e/kWh",
+        "units": dataset.units,
+        "units_by_source": dataset.units_by_source,
+        "unit_counts": dataset.unit_counts,
         "dataset_sha256": dataset.dataset_sha256,
         "observation_count": len(dataset.observations)
         + len(dataset.forecast_observations),
@@ -63,6 +65,9 @@ def main(argv: list[str] | None = None) -> int:
             **availability.__dict__,
             "first_interval_start": _iso_or_none(availability.first_interval_start),
             "last_interval_end": _iso_or_none(availability.last_interval_end),
+            "units": dataset.units,
+            "units_by_source": dataset.units_by_source,
+            "unit_counts": dataset.unit_counts,
         },
         "csv_path": str(args.output),
     }
@@ -135,7 +140,7 @@ def _observation_record(row) -> dict[str, object]:
         "retrieved_at": _iso_or_none(row.retrieved_at),
         "measurement_type": row.measurement_type,
         "intensity_gco2_per_kwh": row.intensity_gco2_per_kwh,
-        "units": "gCO2e/kWh",
+        "units": row.units,
         "source_api": row.source_api,
         "source_url": row.source_url,
         "payload_sha256": row.payload_sha256,

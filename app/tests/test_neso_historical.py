@@ -387,6 +387,9 @@ def test_postgres_persists_replayable_forecasts_idempotently(
             )
         ).all()
         replayed = replay_historical_forecast_record(raw, source_record_id=501)
+        from app.services.historical_dataset import load_dataset
+
+        dataset = load_dataset(session, 13)
 
     assert first.inserted_observation_count == 2
     assert second.inserted_observation_count == 0
@@ -397,8 +400,10 @@ def test_postgres_persists_replayable_forecasts_idempotently(
     assert raw.validation_fresh is False
     assert raw.validation_error is None
     assert replayed.measurement_type == "forecast"
+    assert replayed.units == "gCO2/kWh"
     assert replayed.intensity_gco2_per_kwh == 99
     assert replayed.retrieved_at == acquired_at
+    assert {row.units for row in dataset.forecast_observations} == {"gCO2/kWh"}
 
     monkeypatch.setattr(replay_cli.settings, "database_url", SecretStr("test"))
     monkeypatch.setattr(
@@ -412,6 +417,7 @@ def test_postgres_persists_replayable_forecasts_idempotently(
     replay_cli.main()
     cli_output = json.loads(capsys.readouterr().out)
     assert cli_output["measurement_type"] == "forecast"
+    assert cli_output["units"] == "gCO2/kWh"
     assert cli_output["source_record_id"] == 501
 
 

@@ -16,7 +16,8 @@ from typing import Any
 
 import httpx
 
-DATASET_API = "neso-regional-carbon-intensity-forecast-datastore"
+from app.services.intensity_units import HISTORICAL_NESO_SOURCE_API as DATASET_API
+
 DATASET_ID = "bf3d723b-b4ae-4ec7-9fc9-e584c651a9da"
 RESOURCE_ID = "c16b0e19-c02a-44a8-ba05-4db2c0545a2a"
 DATASTORE_SQL_URL = "https://api.neso.energy/api/3/action/datastore_search_sql"

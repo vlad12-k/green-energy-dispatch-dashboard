@@ -75,7 +75,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     output = {
         "dataset_sha256": dataset.dataset_sha256,
-        "availability": _jsonable(availability.__dict__),
+        "units": dataset.units,
+        "units_by_source": dataset.units_by_source,
+        "unit_counts": dataset.unit_counts,
+        "availability": _jsonable(
+            {
+                **availability.__dict__,
+                "units": dataset.units,
+                "units_by_source": dataset.units_by_source,
+                "unit_counts": dataset.unit_counts,
+            }
+        ),
         "evaluation": _jsonable(report.__dict__),
     }
     print(json.dumps(output, sort_keys=True, indent=2))

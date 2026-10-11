@@ -60,6 +60,7 @@ def main() -> None:
                 {
                     "payload_sha256": raw.payload_sha256,
                     "intensity_gco2_per_kwh": reading.intensity_gco2_per_kwh,
+                    "units": reading.units,
                     "measurement_type": reading.measurement_type,
                     "region_id": reading.region_id,
                     "region_name": reading.region_name,

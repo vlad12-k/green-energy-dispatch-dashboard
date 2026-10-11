@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.persistence.models import CarbonObservation, RawPayload
+from app.services.intensity_units import IntensityUnit, units_for_source_api
 
 MeasurementType = Literal["actual", "forecast"]
 BaselineMethod = Literal["persistence", "seasonal_naive"]
@@ -36,6 +37,7 @@ class DatasetObservation:
     accepted: bool = True
 
     def __post_init__(self) -> None:
+        units_for_source_api(self.source_api)
         if self.valid_until <= self.observed_at:
             raise ValueError("valid_until must be after observed_at")
         if self.measurement_type not in ("actual", "forecast"):
@@ -47,6 +49,10 @@ class DatasetObservation:
             raise ValueError("intensity must be finite and non-negative")
         if len(self.payload_sha256) != 64:
             raise ValueError("payload_sha256 must be a 64-character digest")
+
+    @property
+    def units(self) -> IntensityUnit:
+        return units_for_source_api(self.source_api)
 
     def utc(self) -> DatasetObservation:
         for name in ("observed_at", "valid_until", "retrieved_at"):
@@ -87,13 +93,36 @@ class HistoricalDataset:
     selection_rule: str = "accepted actual records only; latest retrieved_at wins per UTC interval, then greatest payload SHA-256 and raw payload ID"
 
     @property
+    def unit_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for row in (*self.observations, *self.forecast_observations):
+            counts[row.units] = counts.get(row.units, 0) + 1
+        return dict(sorted(counts.items()))
+
+    @property
+    def units_by_source(self) -> dict[str, IntensityUnit]:
+        source_units: dict[str, IntensityUnit] = {}
+        for row in (*self.observations, *self.forecast_observations):
+            source_units[row.source_api] = row.units
+        return dict(sorted(source_units.items()))
+
+    @property
+    def units(self) -> IntensityUnit | None:
+        units: set[IntensityUnit] = set()
+        for row in (*self.observations, *self.forecast_observations):
+            units.add(row.units)
+        return next(iter(units)) if len(units) == 1 else None
+
+    @property
     def dataset_sha256(self) -> str:
         return hashlib.sha256(self.to_json().encode("utf-8")).hexdigest()
 
     def to_json(self) -> str:
         body = {
             "region_id": self.region_id,
-            "units": "gCO2e/kWh",
+            "units": self.units,
+            "units_by_source": self.units_by_source,
+            "unit_counts": self.unit_counts,
             "interval_seconds": self.interval_seconds,
             "first_observed_at": _iso(self.first_observed_at)
             if self.first_observed_at
@@ -205,6 +234,7 @@ class EvaluationReport:
     unavailable_evaluations: tuple[UnavailableEvaluation, ...]
     insufficient_sample_evaluations: tuple[InsufficientSampleEvaluation, ...]
     minimum_evaluation_samples: int
+    units: IntensityUnit | None
 
 
 class HistoricalDatasetRepository:
@@ -288,7 +318,13 @@ def build_dataset(
 
     forecast_count = len(
         {
-            (row.observed_at, row.valid_until, row.retrieved_at, row.payload_sha256)
+            (
+                row.observed_at,
+                row.valid_until,
+                row.retrieved_at,
+                row.payload_sha256,
+                row.units,
+            )
             for row in counted_rows
             if row.accepted and row.measurement_type == "forecast"
         }
@@ -304,6 +340,7 @@ def build_dataset(
                     row.valid_until,
                     row.retrieved_at,
                     row.payload_sha256,
+                    row.units,
                 ): row
                 for row in counted_rows
                 if row.accepted and row.measurement_type == "forecast"
@@ -313,6 +350,7 @@ def build_dataset(
                 row.valid_until,
                 row.retrieved_at,
                 row.payload_sha256,
+                row.units,
             ),
         )
     )
@@ -327,8 +365,13 @@ def build_dataset(
     revision_count = 0
     for key in sorted(groups):
         revisions = groups[key]
+        if len({row.units for row in revisions}) > 1:
+            raise ValueError(
+                "actual revisions for one interval have different intensity units"
+            )
         distinct_versions = {
-            (row.intensity_gco2_per_kwh, row.payload_sha256) for row in revisions
+            (row.intensity_gco2_per_kwh, row.payload_sha256, row.units)
+            for row in revisions
         }
         if len(revisions) > 1:
             duplicate_count += len(revisions) - 1
@@ -600,6 +643,28 @@ def evaluate_baselines(
     )
     if train_rows and test_rows and train_rows[-1].region_id != test_rows[0].region_id:
         raise ValueError("train and test observations must belong to the same region")
+    input_units = {
+        row.units
+        for row in train_input + test_input
+        if row.accepted and row.measurement_type == "actual"
+    }
+    if len(input_units) > 1:
+        reason = (
+            "baseline evaluation cannot compare actuals with different intensity units"
+        )
+        return _build_evaluation_report(
+            region_id=region_id,
+            dataset_origin=dataset_origin,
+            train_rows=train_rows,
+            test_rows=test_rows,
+            requested_horizons=requested_horizons,
+            results=(),
+            unavailable_evaluations=_unavailable_for_all(requested_horizons, reason),
+            insufficient_sample_evaluations=(),
+            minimum_evaluation_samples=minimum_evaluation_samples,
+            minimum_training_observations=minimum_training_observations,
+            overall_reason=reason,
+        )
     if (
         train_rows
         and test_rows
@@ -836,6 +901,10 @@ def _build_evaluation_report(
     overall_reason: str | None = None,
 ) -> EvaluationReport:
     result_rows = tuple(results)
+    evaluation_units: set[IntensityUnit] = set()
+    for row in train_rows + test_rows:
+        if row.accepted and row.measurement_type == "actual":
+            evaluation_units.add(row.units)
     requested_methods = BASELINE_METHODS
     result_pairs = {(result.method, result.horizon_intervals) for result in result_rows}
     insufficient_pairs = {
@@ -910,6 +979,7 @@ def _build_evaluation_report(
         unavailable_evaluations=unavailable_evaluations,
         insufficient_sample_evaluations=insufficient_sample_evaluations,
         minimum_evaluation_samples=minimum_evaluation_samples,
+        units=next(iter(evaluation_units)) if len(evaluation_units) == 1 else None,
     )
 
 
@@ -1005,7 +1075,7 @@ def _observation_json(row: DatasetObservation) -> dict[str, Any]:
         "retrieved_at": _iso(row.retrieved_at),
         "measurement_type": row.measurement_type,
         "intensity_gco2_per_kwh": row.intensity_gco2_per_kwh,
-        "units": "gCO2e/kWh",
+        "units": row.units,
         "source_api": row.source_api,
         "source_url": row.source_url,
         "payload_sha256": row.payload_sha256,

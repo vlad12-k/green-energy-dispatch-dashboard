@@ -93,6 +93,8 @@ DATABASE_URL='postgresql+psycopg://ged:URL_ENCODED_PASSWORD@127.0.0.1:54329/ged'
 
 The CSV preserves selected actual and all accepted forecast readings with provenance. The canonical dataset hash also includes all accepted actual revision evidence for as-of-time evaluation. The JSON manifest reports accepted actual/forecast coverage, rejected payload count, duplicate/conflict counts for actuals, missing half-hour bins, contiguous spans and a deterministic dataset hash. Rejected evidence is not emitted; gaps are not interpolated. Canonical actual selection and both baseline methods use the same revision precedence: latest eligible retrieval time, then lexicographically greatest payload hash, then greatest raw-payload ID.
 
+Intensity units are derived from the persisted `source_api` contract, not converted: the existing live API retains `gCO2e/kWh`, while NESO archive forecasts use `gCO2/kWh`. Every CSV/JSON observation includes its own unit. For mixed-unit datasets, top-level `units` is `null` and per-unit/per-source counts are provided in dataset and availability metadata. Baseline evaluation refuses mixed-unit actuals rather than combining their numeric values.
+
 Evaluate chronological baseline forecasts only when there is enough contiguous accepted actual data:
 
 ```bash
