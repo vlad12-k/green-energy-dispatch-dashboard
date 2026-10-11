@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:17-alpine
-    profiles: ["database"]
+    profiles: ["database", "collector"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-ged}
       POSTGRES_USER: ${POSTGRES_USER:-ged}
@@ -28,6 +28,38 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
       - /var/run/postgresql:rw,noexec,nosuid,size=16m
+
+  collector:
+    build:
+      context: .
+    profiles: ["collector"]
+    command: ["python", "-m", "app.collect_neso", "run"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to the local db service before enabling the collector}
+      COLLECTOR_ENABLED: ${COLLECTOR_ENABLED:-false}
+      COLLECTOR_INTERVAL_SECONDS: ${COLLECTOR_INTERVAL_SECONDS:-1800}
+      COLLECTOR_MAX_ATTEMPTS: ${COLLECTOR_MAX_ATTEMPTS:-3}
+      COLLECTOR_BACKOFF_BASE_SECONDS: ${COLLECTOR_BACKOFF_BASE_SECONDS:-5}
+      COLLECTOR_BACKOFF_MAX_SECONDS: ${COLLECTOR_BACKOFF_MAX_SECONDS:-60}
+      NESO_REGION_ID: ${NESO_REGION_ID:-13}
+      NESO_MAX_AGE_SECONDS: ${NESO_MAX_AGE_SECONDS:-3600}
+      NESO_TIMEOUT_SECONDS: ${NESO_TIMEOUT_SECONDS:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    stop_grace_period: 30s
+    healthcheck:
+      disable: true
 
 volumes:
   postgres_data:

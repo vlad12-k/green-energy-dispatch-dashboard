@@ -1,12 +1,12 @@
 import asyncio
-from datetime import UTC, datetime, timedelta
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 
-from app.services.neso_carbon_intensity import NesoCarbonIntensityClient
+from app.services.neso_carbon_intensity import NesoAPIError, NesoCarbonIntensityClient
 from app.services.neso_ingestion import (
     IngestionError,
     IngestionErrorCategory,
@@ -94,6 +94,18 @@ def test_source_validation_and_persistence_errors_are_categorized():
     with pytest.raises(IngestionError) as source:
         ingest_neso(FakeClient(RuntimeError("offline")), repo)
     assert source.value.category is IngestionErrorCategory.SOURCE
+    assert source.value.retryable is False
+
+    with pytest.raises(IngestionError) as transient:
+        ingest_neso(
+            FakeClient(NesoAPIError(
+                "rate limited", retryable=True, http_status=429, retry_after="12"
+            )),
+            repo,
+        )
+    assert transient.value.retryable is True
+    assert transient.value.http_status == 429
+    assert transient.value.retry_after == "12"
 
     client = FakeClient(({}, now, "https://example.test"))
     with pytest.raises(IngestionError) as validation:

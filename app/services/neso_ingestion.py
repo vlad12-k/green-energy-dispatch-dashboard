@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
-import hashlib
-import json
 from typing import Any, Protocol
 
 from app.services.neso_carbon_intensity import (
@@ -26,8 +26,23 @@ class IngestionErrorCategory(str, Enum):
 class IngestionError(RuntimeError):
     """Raised with an explicit source, validation, or persistence category."""
 
-    def __init__(self, category: IngestionErrorCategory, message: str) -> None:
+    def __init__(
+        self,
+        category: IngestionErrorCategory,
+        message: str,
+        *,
+        retryable: bool = False,
+        http_status: int | None = None,
+        retry_after: str | None = None,
+        source_retrieved_at: datetime | None = None,
+        payload_sha256: str | None = None,
+    ) -> None:
         self.category = category
+        self.retryable = retryable
+        self.http_status = http_status
+        self.retry_after = retry_after
+        self.source_retrieved_at = source_retrieved_at
+        self.payload_sha256 = payload_sha256
         super().__init__(message)
 
 
@@ -49,6 +64,7 @@ class IngestionResult:
     reading: CarbonIntensityReading
     payload_sha256: str
     inserted: bool
+    raw_payload_inserted: bool | None = None
 
 
 def _canonical_payload_bytes(payload: Any) -> bytes:
@@ -92,7 +108,13 @@ def ingest_neso(client: RawNesoClient, repository: NesoRepository) -> IngestionR
     try:
         payload, retrieved_at, source_url = _run_fetch(client)
     except Exception as exc:
-        raise IngestionError(IngestionErrorCategory.SOURCE, "NESO response fetch failed") from exc
+        raise IngestionError(
+            IngestionErrorCategory.SOURCE,
+            "NESO response fetch failed",
+            retryable=bool(getattr(exc, "retryable", False)),
+            http_status=getattr(exc, "http_status", None),
+            retry_after=getattr(exc, "retry_after", None),
+        ) from exc
     try:
         digest = hashlib.sha256(_canonical_payload_bytes(payload)).hexdigest()
     except ValueError as exc:
@@ -123,13 +145,20 @@ def ingest_neso(client: RawNesoClient, repository: NesoRepository) -> IngestionR
                 IngestionErrorCategory.PERSISTENCE,
                 "Rejected NESO payload could not be preserved",
             ) from persistence_exc
-        raise IngestionError(IngestionErrorCategory.VALIDATION, str(exc)) from exc
+        raise IngestionError(
+            IngestionErrorCategory.VALIDATION,
+            str(exc),
+            source_retrieved_at=retrieved_at,
+            payload_sha256=digest,
+        ) from exc
     try:
         with repository.transaction():
-            inserted = repository.insert_reading(_record(reading, payload, digest))
+            record = _record(reading, payload, digest)
+            inserted = repository.insert_reading(record)
+            raw_payload_inserted = getattr(repository, "last_raw_payload_inserted", None)
     except Exception as exc:
         raise IngestionError(IngestionErrorCategory.PERSISTENCE, "NESO reading persistence failed") from exc
-    return IngestionResult(reading, digest, inserted)
+    return IngestionResult(reading, digest, inserted, raw_payload_inserted)
 
 
 def _run_fetch(client: RawNesoClient) -> tuple[Any, datetime, str]:

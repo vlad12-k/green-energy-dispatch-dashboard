@@ -4,9 +4,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import (Boolean, CheckConstraint, DateTime, Float, ForeignKey,
-                        Integer, LargeBinary, String, Text, UniqueConstraint,
-                        func, text)
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -75,3 +86,86 @@ class CarbonObservation(Base):
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     raw_payload: Mapped[RawPayload] = relationship(back_populates="observations")
+
+
+class NesoCollectorRun(Base):
+    """Durable outcome and quality summary for one scheduled collection cycle."""
+
+    __tablename__ = "neso_collector_runs"
+    __table_args__ = (
+        CheckConstraint("region_id > 0", name="ck_neso_collector_run_region_positive"),
+        CheckConstraint("status IN ('running', 'succeeded', 'failed')", name="ck_neso_collector_run_status"),
+        CheckConstraint("attempt_count >= 0", name="ck_neso_collector_run_attempt_count"),
+        CheckConstraint("consecutive_failures >= 0", name="ck_neso_collector_run_failure_count"),
+        CheckConstraint("missing_interval_count >= 0", name="ck_neso_collector_run_gap_count"),
+        CheckConstraint("measurement_type IS NULL OR measurement_type IN ('actual', 'forecast')", name="ck_neso_collector_run_measurement_type"),
+        CheckConstraint("duration_seconds IS NULL OR duration_seconds >= 0", name="ck_neso_collector_run_duration"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    region_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'running'"))
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    error_category: Mapped[str | None] = mapped_column(String(24))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    duration_seconds: Mapped[float | None] = mapped_column(Float)
+    payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    source_retrieved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    interval_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    interval_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    measurement_type: Mapped[str | None] = mapped_column(String(16))
+    intensity_gco2_per_kwh: Mapped[float | None] = mapped_column(Float)
+    source_fresh: Mapped[bool | None] = mapped_column(Boolean)
+    raw_evidence_inserted: Mapped[bool | None] = mapped_column(Boolean)
+    observation_inserted: Mapped[bool | None] = mapped_column(Boolean)
+    duplicate_interval: Mapped[bool | None] = mapped_column(Boolean)
+    missing_interval_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    gap_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    gap_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    attempts: Mapped[list[NesoCollectorAttempt]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class NesoCollectorAttempt(Base):
+    """One separately tracked HTTP attempt, including bounded retry metadata."""
+
+    __tablename__ = "neso_collector_attempts"
+    __table_args__ = (
+        CheckConstraint("attempt_number > 0", name="ck_neso_collector_attempt_number"),
+        CheckConstraint(
+            "outcome IN ('in_progress', 'success', 'duplicate', 'source_failure', 'validation_failure', 'persistence_failure', 'internal_failure')",
+            name="ck_neso_collector_attempt_outcome",
+        ),
+        CheckConstraint("http_status IS NULL OR http_status BETWEEN 100 AND 599", name="ck_neso_collector_attempt_http_status"),
+        CheckConstraint("retry_delay_seconds IS NULL OR retry_delay_seconds >= 0", name="ck_neso_collector_attempt_retry_delay"),
+        CheckConstraint("measurement_type IS NULL OR measurement_type IN ('actual', 'forecast')", name="ck_neso_collector_attempt_measurement_type"),
+        UniqueConstraint("run_id", "attempt_number", name="uq_neso_collector_attempt_number"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("neso_collector_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False, server_default=text("'in_progress'"))
+    error_category: Mapped[str | None] = mapped_column(String(24))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    retryable: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    http_status: Mapped[int | None] = mapped_column(Integer)
+    retry_after: Mapped[str | None] = mapped_column(String(128))
+    retry_delay_seconds: Mapped[float | None] = mapped_column(Float)
+    payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    source_retrieved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    interval_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    interval_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    measurement_type: Mapped[str | None] = mapped_column(String(16))
+    source_fresh: Mapped[bool | None] = mapped_column(Boolean)
+    raw_evidence_inserted: Mapped[bool | None] = mapped_column(Boolean)
+    observation_inserted: Mapped[bool | None] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    run: Mapped[NesoCollectorRun] = relationship(back_populates="attempts")

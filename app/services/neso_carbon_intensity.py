@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-import math
 from typing import Any
 from urllib.parse import urljoin
 
@@ -17,6 +17,19 @@ DEFAULT_BASE_URL = "https://api.carbonintensity.org.uk"
 
 class NesoAPIError(RuntimeError):
     """Raised when the NESO API is unavailable or returns unusable evidence."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        http_status: int | None = None,
+        retry_after: str | None = None,
+    ) -> None:
+        self.retryable = retryable
+        self.http_status = http_status
+        self.retry_after = retry_after
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -41,7 +54,7 @@ class CarbonIntensityReading:
 
 def _parse_timestamp(value: Any, field_name: str) -> datetime:
     if not isinstance(value, str):
-        raise ValueError(f"{field_name} must be an ISO-8601 timestamp")
+        raise ValueError(f"{field_name} must be an ISO-8601 timestamp")  # noqa: TRY004
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
@@ -70,7 +83,7 @@ def parse_regional_response(
     retrieved_at = retrieved_at.astimezone(UTC)
 
     if not isinstance(payload, Mapping):
-        raise ValueError("NESO response must be a JSON object")
+        raise ValueError("NESO response must be a JSON object")  # noqa: TRY004
     regions = payload.get("data")
     if not isinstance(regions, list) or not regions:
         raise ValueError("response data must be a non-empty list")
@@ -87,10 +100,10 @@ def parse_regional_response(
         raise ValueError("regional intervals must be a non-empty list")
     record = intervals[0]
     if not isinstance(record, Mapping):
-        raise ValueError("regional interval must be a JSON object")
+        raise ValueError("regional interval must be a JSON object")  # noqa: TRY004
     intensity = record.get("intensity")
     if not isinstance(intensity, Mapping):
-        raise ValueError("regional intensity must be a JSON object")
+        raise ValueError("regional intensity must be a JSON object")  # noqa: TRY004
 
     observed_at = _parse_timestamp(record.get("from"), "data[0].data[0].from")
     valid_until = _parse_timestamp(record.get("to"), "data[0].data[0].to")
@@ -98,7 +111,7 @@ def parse_regional_response(
     actual = intensity.get("actual")
     raw_value = actual if actual is not None else forecast
     if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
-        raise ValueError("intensity must contain a numeric actual or forecast value")
+        raise ValueError("intensity must contain a numeric actual or forecast value")  # noqa: TRY004
     try:
         value = float(raw_value)
     except OverflowError as exc:
@@ -201,13 +214,21 @@ class NesoCarbonIntensityClient:
                 payload = response.json()
                 retrieved_at = datetime.now(UTC)
         except httpx.TimeoutException as exc:
-            raise NesoAPIError("NESO Carbon Intensity API request timed out") from exc
-        except httpx.HTTPStatusError as exc:
             raise NesoAPIError(
-                f"NESO Carbon Intensity API returned HTTP {exc.response.status_code}"
+                "NESO Carbon Intensity API request timed out", retryable=True
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            raise NesoAPIError(
+                f"NESO Carbon Intensity API returned HTTP {status}",
+                retryable=status == 429 or 500 <= status <= 599,
+                http_status=status,
+                retry_after=exc.response.headers.get("Retry-After"),
             ) from exc
         except httpx.RequestError as exc:
-            raise NesoAPIError("NESO Carbon Intensity API request failed") from exc
+            raise NesoAPIError(
+                "NESO Carbon Intensity API request failed", retryable=True
+            ) from exc
         except ValueError as exc:
             raise NesoAPIError("NESO Carbon Intensity API returned invalid JSON") from exc
 

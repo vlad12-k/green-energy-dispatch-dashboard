@@ -1,9 +1,9 @@
 """PostgreSQL repository bridging ingestion records into immutable evidence."""
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ class SqlAlchemyNesoRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.repository = CarbonRepository(session)
+        self.last_raw_payload_inserted: bool | None = None
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
@@ -23,7 +24,7 @@ class SqlAlchemyNesoRepository:
             yield
 
     def insert_reading(self, record: Mapping[str, Any]) -> bool:
-        raw = self.repository.store_payload(
+        raw, raw_inserted = self.repository.store_payload_with_status(
             record["raw_payload"],
             region_id=int(record["region_id"]),
             source_url=str(record["source_url"]),
@@ -31,10 +32,11 @@ class SqlAlchemyNesoRepository:
             validation_fresh=bool(record["is_fresh"]),
             source_api=str(record["source_api"]),
         )
-        _observation, inserted = self.repository.store_observation_with_status(
+        _observation, observation_inserted = self.repository.store_observation_with_status(
             raw, region_id=int(record["region_id"])
         )
-        return inserted
+        self.last_raw_payload_inserted = raw_inserted
+        return observation_inserted
 
     def insert_invalid_payload(self, record: Mapping[str, Any]) -> None:
         """Preserve rejected source evidence without creating an observation."""

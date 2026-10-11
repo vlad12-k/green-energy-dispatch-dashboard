@@ -69,6 +69,23 @@ def test_database_url_is_optional_and_not_exposed_in_settings_repr() -> None:
     assert "secret" not in repr(configured)
 
 
+def test_collector_is_opt_in_with_bounded_polling_and_retry_defaults() -> None:
+    configured = Settings()
+
+    assert configured.collector_enabled is False
+    assert configured.collector_interval_seconds == 1800
+    assert configured.collector_max_attempts == 3
+    assert configured.collector_backoff_base_seconds == 5
+    assert configured.collector_backoff_max_seconds == 60
+
+
+def test_collector_configuration_rejects_unsafe_retry_bounds() -> None:
+    with pytest.raises(ValueError):
+        Settings(collector_interval_seconds=10)
+    with pytest.raises(ValueError):
+        Settings(collector_backoff_base_seconds=20, collector_backoff_max_seconds=10)
+
+
 def test_empty_database_url_environment_preserves_stateless_settings(monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "")
 
