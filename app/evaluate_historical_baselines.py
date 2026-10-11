@@ -34,6 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--seasonal-periods", type=int, default=48)
     parser.add_argument("--minimum-training-observations", type=int, default=96)
+    parser.add_argument("--minimum-evaluation-samples", type=int, default=2)
     args = parser.parse_args(argv)
     if settings.database_url is None:
         parser.error("Set DATABASE_URL to an already migrated PostgreSQL database")
@@ -69,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         horizons=horizons,
         seasonal_periods=args.seasonal_periods,
         minimum_training_observations=args.minimum_training_observations,
+        minimum_evaluation_samples=args.minimum_evaluation_samples,
         dataset_origin=f"postgresql region {args.region_id}; dataset_sha256 {dataset.dataset_sha256}",
     )
     output = {

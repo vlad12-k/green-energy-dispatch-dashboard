@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from app.persistence.models import CarbonObservation, RawPayload
 
 MeasurementType = Literal["actual", "forecast"]
+BaselineMethod = Literal["persistence", "seasonal_naive"]
+BASELINE_METHODS: tuple[BaselineMethod, ...] = ("persistence", "seasonal_naive")
 
 
 @dataclass(frozen=True)
@@ -159,7 +161,7 @@ class TemporalSplit:
 
 @dataclass(frozen=True)
 class BaselineMetric:
-    method: str
+    method: BaselineMethod
     horizon_intervals: int
     sample_count: int
     mae: float
@@ -167,6 +169,22 @@ class BaselineMetric:
     first_target_at: datetime
     last_target_at: datetime
     skipped_missing_input_count: int
+
+
+@dataclass(frozen=True)
+class UnavailableEvaluation:
+    method: BaselineMethod
+    horizon_intervals: int
+    reason: str
+
+
+@dataclass(frozen=True)
+class InsufficientSampleEvaluation:
+    method: BaselineMethod
+    horizon_intervals: int
+    sample_count: int
+    minimum_sample_count: int
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -180,6 +198,13 @@ class EvaluationReport:
     test_start: datetime | None
     test_end: datetime | None
     results: tuple[BaselineMetric, ...]
+    requested_horizons: tuple[int, ...]
+    requested_methods: tuple[BaselineMethod, ...]
+    evaluated_horizons: tuple[int, ...]
+    evaluated_methods: tuple[BaselineMethod, ...]
+    unavailable_evaluations: tuple[UnavailableEvaluation, ...]
+    insufficient_sample_evaluations: tuple[InsufficientSampleEvaluation, ...]
+    minimum_evaluation_samples: int
 
 
 class HistoricalDatasetRepository:
@@ -309,16 +334,7 @@ def build_dataset(
             duplicate_count += len(revisions) - 1
         if len(distinct_versions) > 1:
             revision_count += len(distinct_versions) - 1
-        selected.append(
-            max(
-                revisions,
-                key=lambda row: (
-                    row.retrieved_at,
-                    row.payload_sha256,
-                    row.raw_payload_id,
-                ),
-            )
-        )
+        selected.append(max(revisions, key=_revision_precedence))
 
     selected.sort(
         key=lambda row: (
@@ -524,21 +540,64 @@ def evaluate_baselines(
     horizons: tuple[int, ...] = (1,),
     seasonal_periods: int = 48,
     minimum_training_observations: int = 48,
+    minimum_evaluation_samples: int = 2,
     dataset_origin: str = "provided observations",
 ) -> EvaluationReport:
     train_input = tuple(train)
     test_input = tuple(test)
-    train_rows = _validated_actuals(train_input)
-    test_rows = _validated_actuals(test_input)
     if not horizons or any(
         isinstance(value, bool) or not isinstance(value, int) or value <= 0
         for value in horizons
     ):
         raise ValueError("horizons must contain positive interval counts")
-    if seasonal_periods <= 0 or minimum_training_observations <= 0:
+    if (
+        seasonal_periods <= 0
+        or minimum_training_observations <= 0
+        or minimum_evaluation_samples <= 0
+    ):
         raise ValueError(
-            "seasonal_periods and minimum_training_observations must be positive"
+            "seasonal_periods, minimum_training_observations and minimum_evaluation_samples must be positive"
         )
+    if isinstance(minimum_evaluation_samples, bool) or not isinstance(
+        minimum_evaluation_samples, int
+    ):
+        raise ValueError("minimum_evaluation_samples must be a positive integer")
+    requested_horizons = tuple(sorted(set(horizons)))
+    try:
+        train_rows = _validated_actuals(train_input)
+        test_rows = _validated_actuals(test_input)
+    except ValueError as exc:
+        if "must include a timezone" not in str(exc):
+            raise
+        region_id = next(
+            (
+                row.region_id
+                for row in train_input + test_input
+                if row.accepted and row.measurement_type == "actual"
+            ),
+            None,
+        )
+        reason = (
+            f"baseline evaluation requires timezone-aware observation timestamps: {exc}"
+        )
+        return _build_evaluation_report(
+            region_id=region_id,
+            dataset_origin=dataset_origin,
+            train_rows=(),
+            test_rows=(),
+            requested_horizons=requested_horizons,
+            results=(),
+            unavailable_evaluations=_unavailable_for_all(requested_horizons, reason),
+            insufficient_sample_evaluations=(),
+            minimum_evaluation_samples=minimum_evaluation_samples,
+            minimum_training_observations=minimum_training_observations,
+            overall_reason=reason,
+        )
+    region_id = (
+        train_rows[0].region_id
+        if train_rows
+        else (test_rows[0].region_id if test_rows else None)
+    )
     if train_rows and test_rows and train_rows[-1].region_id != test_rows[0].region_id:
         raise ValueError("train and test observations must belong to the same region")
     if (
@@ -546,20 +605,39 @@ def evaluate_baselines(
         and test_rows
         and train_rows[-1].valid_until > test_rows[0].observed_at
     ):
-        raise ValueError("training and test intervals must not overlap")
+        reason = "training and test intervals overlap; chronological evaluation is unavailable"
+        return _build_evaluation_report(
+            region_id=region_id,
+            dataset_origin=dataset_origin,
+            train_rows=train_rows,
+            test_rows=test_rows,
+            requested_horizons=requested_horizons,
+            results=(),
+            unavailable_evaluations=_unavailable_for_all(requested_horizons, reason),
+            insufficient_sample_evaluations=(),
+            minimum_evaluation_samples=minimum_evaluation_samples,
+            minimum_training_observations=minimum_training_observations,
+            overall_reason=reason,
+        )
     if (
         train_rows
         and test_rows
         and train_rows[-1].observed_at >= test_rows[0].observed_at
     ):
-        raise ValueError(
-            "test observations must occur strictly after the training period"
+        reason = "test observations do not occur strictly after the training period"
+        return _build_evaluation_report(
+            region_id=region_id,
+            dataset_origin=dataset_origin,
+            train_rows=train_rows,
+            test_rows=test_rows,
+            requested_horizons=requested_horizons,
+            results=(),
+            unavailable_evaluations=_unavailable_for_all(requested_horizons, reason),
+            insufficient_sample_evaluations=(),
+            minimum_evaluation_samples=minimum_evaluation_samples,
+            minimum_training_observations=minimum_training_observations,
+            overall_reason=reason,
         )
-    region_id = (
-        train_rows[0].region_id
-        if train_rows
-        else (test_rows[0].region_id if test_rows else None)
-    )
     interval_seconds = 1800
     available_actuals = _accepted_actual_rows(train_input + test_input)
     if any(
@@ -567,16 +645,19 @@ def evaluate_baselines(
         or int(row.observed_at.timestamp()) % interval_seconds != 0
         for row in available_actuals
     ):
-        return EvaluationReport(
+        reason = "baseline evaluation requires UTC-aligned half-hourly intervals"
+        return _build_evaluation_report(
             region_id=region_id,
             dataset_origin=dataset_origin,
-            sufficient_data=False,
-            insufficient_reason="baseline evaluation requires UTC-aligned half-hourly intervals",
-            train_start=train_rows[0].observed_at if train_rows else None,
-            train_end=train_rows[-1].valid_until if train_rows else None,
-            test_start=test_rows[0].observed_at if test_rows else None,
-            test_end=test_rows[-1].valid_until if test_rows else None,
+            train_rows=train_rows,
+            test_rows=test_rows,
+            requested_horizons=requested_horizons,
             results=(),
+            unavailable_evaluations=_unavailable_for_all(requested_horizons, reason),
+            insufficient_sample_evaluations=(),
+            minimum_evaluation_samples=minimum_evaluation_samples,
+            minimum_training_observations=minimum_training_observations,
+            overall_reason=reason,
         )
     if (
         any(
@@ -594,32 +675,59 @@ def evaluate_baselines(
             != interval_seconds
         )
     ):
-        return EvaluationReport(
+        reason = "baseline evaluation requires contiguous half-hourly actuals; gaps are not interpolated"
+        return _build_evaluation_report(
             region_id=region_id,
             dataset_origin=dataset_origin,
-            sufficient_data=False,
-            insufficient_reason="baseline evaluation requires contiguous half-hourly actuals; gaps are not interpolated",
-            train_start=train_rows[0].observed_at if train_rows else None,
-            train_end=train_rows[-1].valid_until if train_rows else None,
-            test_start=test_rows[0].observed_at if test_rows else None,
-            test_end=test_rows[-1].valid_until if test_rows else None,
+            train_rows=train_rows,
+            test_rows=test_rows,
+            requested_horizons=requested_horizons,
             results=(),
+            unavailable_evaluations=_unavailable_for_all(requested_horizons, reason),
+            insufficient_sample_evaluations=(),
+            minimum_evaluation_samples=minimum_evaluation_samples,
+            minimum_training_observations=minimum_training_observations,
+            overall_reason=reason,
         )
     results: list[BaselineMetric] = []
-    for horizon in sorted(set(horizons)):
-        for method in ("persistence", "seasonal_naive"):
+    unavailable: list[UnavailableEvaluation] = []
+    insufficient_samples: list[InsufficientSampleEvaluation] = []
+    for horizon in requested_horizons:
+        eligible_targets = [
+            target
+            for target in test_rows
+            if target.observed_at - timedelta(seconds=horizon * interval_seconds)
+            >= test_rows[0].observed_at
+        ]
+        if not eligible_targets:
+            reason = (
+                "holdout has no forecast target whose origin is at or after its "
+                f"first test interval for horizon {horizon}"
+            )
+            unavailable.extend(
+                UnavailableEvaluation(method, horizon, reason)
+                for method in BASELINE_METHODS
+            )
+            continue
+        for method in BASELINE_METHODS:
             if method == "seasonal_naive" and len(train_rows) < max(
                 seasonal_periods, minimum_training_observations
             ):
+                required = max(seasonal_periods, minimum_training_observations)
+                unavailable.append(
+                    UnavailableEvaluation(
+                        method,
+                        horizon,
+                        f"seasonal naive requires at least {required} training actuals; got {len(train_rows)}",
+                    )
+                )
                 continue
             errors: list[tuple[datetime, float]] = []
             skipped = 0
-            for target in test_rows:
+            for target in eligible_targets:
                 origin = target.observed_at - timedelta(
                     seconds=horizon * interval_seconds
                 )
-                if origin < test_rows[0].observed_at:
-                    continue
                 if method == "persistence":
                     source_candidates = [
                         row
@@ -631,9 +739,7 @@ def evaluate_baselines(
                             source_candidates,
                             key=lambda row: (
                                 row.observed_at,
-                                row.retrieved_at,
-                                row.payload_sha256,
-                                row.raw_payload_id,
+                                *_revision_precedence(row),
                             ),
                         )
                         if source_candidates
@@ -651,7 +757,7 @@ def evaluate_baselines(
                         and row.retrieved_at <= origin
                     ]
                     source = (
-                        max(source_candidates, key=lambda row: row.retrieved_at)
+                        max(source_candidates, key=_revision_precedence)
                         if source_candidates
                         else None
                     )
@@ -680,15 +786,95 @@ def evaluate_baselines(
                         skipped_missing_input_count=skipped,
                     )
                 )
-    sufficient = len(train_rows) >= minimum_training_observations and bool(test_rows)
-    sufficient = sufficient and bool(results)
-    reason = (
-        None
-        if sufficient
-        else (
-            f"requires at least {minimum_training_observations} accepted training actuals, one test actual, and a usable baseline sample"
-        )
+                if len(values) < minimum_evaluation_samples:
+                    insufficient_samples.append(
+                        InsufficientSampleEvaluation(
+                            method=method,
+                            horizon_intervals=horizon,
+                            sample_count=len(values),
+                            minimum_sample_count=minimum_evaluation_samples,
+                            reason=(
+                                f"only {len(values)} valid sample(s); at least "
+                                f"{minimum_evaluation_samples} are required"
+                            ),
+                        )
+                    )
+            else:
+                unavailable.append(
+                    UnavailableEvaluation(
+                        method,
+                        horizon,
+                        f"no eligible source actual was available for {method} at any forecast origin for horizon {horizon}",
+                    )
+                )
+    return _build_evaluation_report(
+        region_id=region_id,
+        dataset_origin=dataset_origin,
+        train_rows=train_rows,
+        test_rows=test_rows,
+        requested_horizons=requested_horizons,
+        results=tuple(results),
+        unavailable_evaluations=tuple(unavailable),
+        insufficient_sample_evaluations=tuple(insufficient_samples),
+        minimum_evaluation_samples=minimum_evaluation_samples,
+        minimum_training_observations=minimum_training_observations,
     )
+
+
+def _build_evaluation_report(
+    *,
+    region_id: int | None,
+    dataset_origin: str,
+    train_rows: tuple[DatasetObservation, ...],
+    test_rows: tuple[DatasetObservation, ...],
+    requested_horizons: tuple[int, ...],
+    results: Iterable[BaselineMetric],
+    unavailable_evaluations: tuple[UnavailableEvaluation, ...],
+    insufficient_sample_evaluations: tuple[InsufficientSampleEvaluation, ...],
+    minimum_evaluation_samples: int,
+    minimum_training_observations: int,
+    overall_reason: str | None = None,
+) -> EvaluationReport:
+    result_rows = tuple(results)
+    requested_methods = BASELINE_METHODS
+    result_pairs = {(result.method, result.horizon_intervals) for result in result_rows}
+    insufficient_pairs = {
+        (item.method, item.horizon_intervals)
+        for item in insufficient_sample_evaluations
+    }
+    adequately_evaluated_pairs = result_pairs - insufficient_pairs
+    complete = (
+        not unavailable_evaluations
+        and not insufficient_sample_evaluations
+        and len(adequately_evaluated_pairs)
+        == len(requested_methods) * len(requested_horizons)
+    )
+    sufficient = (
+        len(train_rows) >= minimum_training_observations
+        and bool(test_rows)
+        and complete
+    )
+    if sufficient:
+        reason = None
+    elif overall_reason is not None:
+        reason = overall_reason
+    elif len(train_rows) < minimum_training_observations:
+        reason = f"requires at least {minimum_training_observations} accepted training actuals"
+    elif not test_rows:
+        reason = "requires at least one accepted test actual"
+    else:
+        reasons = []
+        if unavailable_evaluations:
+            reasons.append(
+                "see unavailable_evaluations for horizon/method pairs with no valid samples"
+            )
+        if insufficient_sample_evaluations:
+            reasons.append(
+                f"some horizon/method pairs have fewer than {minimum_evaluation_samples} valid samples; see insufficient_sample_evaluations"
+            )
+        if not reasons:
+            reasons.append("not all requested horizon/method pairs were evaluated")
+        reason = "; ".join(reasons)
     return EvaluationReport(
         region_id=region_id,
         dataset_origin=dataset_origin,
@@ -698,7 +884,42 @@ def evaluate_baselines(
         train_end=train_rows[-1].valid_until if train_rows else None,
         test_start=test_rows[0].observed_at if test_rows else None,
         test_end=test_rows[-1].valid_until if test_rows else None,
-        results=tuple(results) if sufficient else (),
+        results=result_rows,
+        requested_horizons=requested_horizons,
+        requested_methods=requested_methods,
+        evaluated_horizons=tuple(
+            horizon
+            for horizon in requested_horizons
+            if any(
+                result.horizon_intervals == horizon
+                and (result.method, result.horizon_intervals)
+                in adequately_evaluated_pairs
+                for result in result_rows
+            )
+        ),
+        evaluated_methods=tuple(
+            method
+            for method in requested_methods
+            if any(
+                result.method == method
+                and (result.method, result.horizon_intervals)
+                in adequately_evaluated_pairs
+                for result in result_rows
+            )
+        ),
+        unavailable_evaluations=unavailable_evaluations,
+        insufficient_sample_evaluations=insufficient_sample_evaluations,
+        minimum_evaluation_samples=minimum_evaluation_samples,
+    )
+
+
+def _unavailable_for_all(
+    horizons: tuple[int, ...], reason: str
+) -> tuple[UnavailableEvaluation, ...]:
+    return tuple(
+        UnavailableEvaluation(method, horizon, reason)
+        for horizon in horizons
+        for method in BASELINE_METHODS
     )
 
 
@@ -740,17 +961,7 @@ def _canonical_actuals(
     )
     for row in materialised:
         revisions[(row.observed_at, row.valid_until)].append(row)
-    selected = (
-        max(
-            group,
-            key=lambda row: (
-                row.retrieved_at,
-                row.payload_sha256,
-                row.raw_payload_id,
-            ),
-        )
-        for group in revisions.values()
-    )
+    selected = (max(group, key=_revision_precedence) for group in revisions.values())
     return tuple(
         sorted(
             selected,
@@ -762,6 +973,10 @@ def _canonical_actuals(
             ),
         )
     )
+
+
+def _revision_precedence(row: DatasetObservation) -> tuple[datetime, str, int]:
+    return row.retrieved_at, row.payload_sha256, row.raw_payload_id
 
 
 def _from_models(observation: CarbonObservation, raw: RawPayload) -> DatasetObservation:
