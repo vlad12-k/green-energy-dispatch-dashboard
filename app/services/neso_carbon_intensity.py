@@ -11,7 +11,9 @@ from urllib.parse import urljoin
 
 import httpx
 
-SOURCE_API = "neso-carbon-intensity-api"
+from app.services.intensity_units import LIVE_NESO_SOURCE_API as SOURCE_API
+from app.services.intensity_units import IntensityUnit, units_for_source_api
+
 DEFAULT_BASE_URL = "https://api.carbonintensity.org.uk"
 
 
@@ -50,6 +52,10 @@ class CarbonIntensityReading:
     age_seconds: float
     source_api: str
     source_url: str
+
+    @property
+    def units(self) -> IntensityUnit:
+        return units_for_source_api(self.source_api)
 
 
 def _parse_timestamp(value: Any, field_name: str) -> datetime:

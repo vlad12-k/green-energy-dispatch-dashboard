@@ -69,6 +69,19 @@ Observations carry UTC-aware interval and retrieval timestamps, region, source a
 
 Replay reads a saved raw payload and retrieval context from the database through `replay_raw_payload`; it performs no network request. It verifies SHA-256 and that the JSONB value matches the preserved canonical bytes, then calls the same parser with the original region, source URL, and retrieval time. The parser's freshness bound is widened only for replay so that historically accepted evidence can be deterministically re-evaluated. Evidence with a stored `validation_error` is refused with that rejection reason; `validation_fresh=false` alone is not treated as rejection because an accepted completed forecast can be non-fresh. Replay does not invent absent intervals or reconstruct data that NESO did not return.
 
+## Explicit historical regional forecast acquisition
+
+The official NESO regional archive contains forecast target values, not regional actuals or original forecast issue timestamps. It therefore cannot support actual-based evaluation or historical as-of forecast scoring by itself. See [`NESO_HISTORICAL_ACQUISITION.md`](NESO_HISTORICAL_ACQUISITION.md) for source findings, limitations and licence attribution.
+
+The acquisition CLI defaults to a database-free dry run and makes one request for one UTC half-hour-aligned window no longer than 14 days:
+
+```bash
+python -m app.acquire_neso_historical --region-id 13 \
+  --from 2026-07-24T11:00:00Z --to 2026-07-24T12:00:00Z
+```
+
+It prints a machine-readable JSON report and writes no files or database rows by default. Add `--persist` only when `DATABASE_URL` explicitly points at the intended already-migrated PostgreSQL database. No migrations or bulk backfill are performed. Persisted archive rows remain classified as forecasts and use the actual acquisition time as `retrieved_at`; the command never infers an issue time.
+
 ## Historical dataset and baseline commands
 
 After the database has been migrated to the current Alembic head and contains retained observations, build a region-specific CSV and availability manifest:
@@ -79,6 +92,8 @@ DATABASE_URL='postgresql+psycopg://ged:URL_ENCODED_PASSWORD@127.0.0.1:54329/ged'
 ```
 
 The CSV preserves selected actual and all accepted forecast readings with provenance. The canonical dataset hash also includes all accepted actual revision evidence for as-of-time evaluation. The JSON manifest reports accepted actual/forecast coverage, rejected payload count, duplicate/conflict counts for actuals, missing half-hour bins, contiguous spans and a deterministic dataset hash. Rejected evidence is not emitted; gaps are not interpolated. Canonical actual selection and both baseline methods use the same revision precedence: latest eligible retrieval time, then lexicographically greatest payload hash, then greatest raw-payload ID.
+
+Intensity units are derived from the persisted `source_api` contract, not converted: the existing live API retains `gCO2e/kWh`, while NESO archive forecasts use `gCO2/kWh`. Every CSV/JSON observation includes its own unit. For mixed-unit datasets, top-level `units` is `null` and per-unit/per-source counts are provided in dataset and availability metadata. Baseline evaluation refuses mixed-unit actuals rather than combining their numeric values.
 
 Evaluate chronological baseline forecasts only when there is enough contiguous accepted actual data:
 

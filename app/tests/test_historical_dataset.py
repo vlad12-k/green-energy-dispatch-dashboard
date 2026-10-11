@@ -17,7 +17,11 @@ from app.services.historical_dataset import (
     chronological_split,
 )
 from app.persistence.repository import CarbonRepository
+from app.persistence.historical_forecast_repository import (
+    persist_historical_acquisition,
+)
 from app.services.neso_carbon_intensity import SOURCE_API
+from app.services.neso_historical import DATASET_API, parse_historical_response
 import app.build_historical_dataset as dataset_builder
 from app.build_historical_dataset import main as build_dataset_cli
 from app.evaluate_historical_baselines import main as evaluate_baselines_cli
@@ -31,6 +35,7 @@ def observation(
     kind: str = "actual",
     payload_hash: str | None = None,
     accepted: bool = True,
+    source_api: str = SOURCE_API,
 ) -> DatasetObservation:
     return DatasetObservation(
         region_id=13,
@@ -40,7 +45,7 @@ def observation(
         retrieved_at=retrieved or start + timedelta(minutes=30),
         measurement_type=kind,
         intensity_gco2_per_kwh=value,
-        source_api="neso-carbon-intensity-api",
+        source_api=source_api,
         source_url="https://api.carbonintensity.org.uk/regional/regionid/13",
         payload_sha256=payload_hash or f"{int(value):064x}",
         raw_payload_id=int(value) + 1,
@@ -616,7 +621,9 @@ def test_postgres_repository_exports_only_validated_normalised_evidence(
     assert len(dataset.observations) == 1
     assert dataset.observations[0].measurement_type == "actual"
     assert dataset.observations[0].payload_sha256
+    assert dataset.observations[0].units == "gCO2e/kWh"
     assert dataset.forecast_count == 1
+    assert dataset.forecast_observations[0].units == "gCO2e/kWh"
     assert dataset.rejected_observation_count == 1
 
 
@@ -699,3 +706,201 @@ def test_concurrent_csv_exports_to_one_path_are_atomic_and_distinct(
         }
     assert values in ({1.0, 2.0}, {101.0, 102.0})
     assert list(tmp_path.glob(".same.csv.*.tmp")) == []
+
+
+def test_postgres_mixed_source_cli_exports_per_observation_units(
+    postgres_engine, monkeypatch, capsys, tmp_path
+) -> None:
+    from app.core.config import settings
+
+    live_retrieved_at = datetime(2026, 1, 1, 11, 30, tzinfo=UTC)
+    live_payload = {
+        "data": [
+            {
+                "regionid": 13,
+                "shortname": "London",
+                "data": [
+                    {
+                        "from": "2026-01-01T11:00:00Z",
+                        "to": "2026-01-01T11:30:00Z",
+                        "intensity": {"actual": 40, "forecast": 42, "index": "low"},
+                    }
+                ],
+            }
+        ],
+    }
+    archive_start = datetime(2026, 1, 1, 12, tzinfo=UTC)
+    archive_payload = {
+        "success": True,
+        "result": {
+            "resource_id": "c16b0e19-c02a-44a8-ba05-4db2c0545a2a",
+            "fields": [{"id": "_id"}, {"id": "datetime"}, {"id": "London"}],
+            "records": [{"_id": 91, "datetime": "2026-01-01T12:00:00", "London": 55}],
+        },
+    }
+    archive_source_url = (
+        "https://api.neso.energy/api/3/action/datastore_search_sql?sql=bounded"
+    )
+    archive_report = parse_historical_response(
+        archive_payload,
+        region_id=13,
+        requested_start=archive_start,
+        requested_end=archive_start + timedelta(minutes=30),
+        acquired_at=datetime(2026, 1, 2, tzinfo=UTC),
+        source_url=archive_source_url,
+    )
+
+    with Session(postgres_engine) as session:
+        repository = CarbonRepository(session)
+        with session.begin():
+            raw = repository.store_payload(
+                live_payload,
+                region_id=13,
+                source_url="https://api.carbonintensity.org.uk/regional/regionid/13",
+                retrieved_at=live_retrieved_at,
+                validation_fresh=True,
+                validation_error=None,
+                source_api=SOURCE_API,
+            )
+            repository.store_observation(raw, region_id=13)
+            persist_historical_acquisition(session, archive_report, archive_payload)
+        from app.services.historical_dataset import load_dataset
+
+        dataset = load_dataset(session, 13)
+
+    assert dataset.units is None
+    assert dataset.unit_counts == {"gCO2/kWh": 1, "gCO2e/kWh": 1}
+    assert dataset.forecast_observations[0].units == "gCO2/kWh"
+    assert dataset.observations[0].units == "gCO2e/kWh"
+
+    monkeypatch.setattr(settings, "database_url", SecretStr("postgresql://unused"))
+    monkeypatch.setattr(
+        dataset_builder, "create_engine", lambda *_args, **_kwargs: postgres_engine
+    )
+    output_path = tmp_path / "mixed-units.csv"
+    assert build_dataset_cli(["--region-id", "13", "--output", str(output_path)]) == 0
+    manifest = json.loads(capsys.readouterr().out)
+    with output_path.open(newline="", encoding="utf-8") as stream:
+        exported = list(csv.DictReader(stream))
+
+    assert manifest["units"] is None
+    assert manifest["unit_counts"] == dataset.unit_counts
+    assert manifest["units_by_source"] == dataset.units_by_source
+    assert manifest["availability"]["units"] is None
+    assert manifest["availability"]["unit_counts"] == dataset.unit_counts
+    assert manifest["availability"]["units_by_source"] == dataset.units_by_source
+    assert {row["units"] for row in exported} == {"gCO2/kWh", "gCO2e/kWh"}
+
+
+def test_mixed_source_dataset_preserves_units_and_deterministic_hashes(
+    tmp_path,
+) -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    live_actual = observation(start, 40)
+    archived_forecast = observation(
+        start + timedelta(minutes=30),
+        42,
+        kind="forecast",
+        source_api=DATASET_API,
+    )
+
+    dataset = build_dataset([live_actual, archived_forecast], region_id=13)
+    reordered = build_dataset([archived_forecast, live_actual], region_id=13)
+
+    assert live_actual.units == "gCO2e/kWh"
+    assert archived_forecast.units == "gCO2/kWh"
+    assert dataset.units is None
+    assert dataset.unit_counts == {"gCO2/kWh": 1, "gCO2e/kWh": 1}
+    assert dataset.dataset_sha256 == reordered.dataset_sha256
+    body = json.loads(dataset.to_json())
+    assert body["units"] is None
+    assert body["unit_counts"] == dataset.unit_counts
+    assert body["units_by_source"] == {
+        DATASET_API: "gCO2/kWh",
+        SOURCE_API: "gCO2e/kWh",
+    }
+    assert {
+        row["units"] for row in body["observations"] + body["forecast_observations"]
+    } == {"gCO2/kWh", "gCO2e/kWh"}
+
+    output = tmp_path / "mixed.csv"
+    dataset_builder._write_csv(
+        (*dataset.observations, *dataset.forecast_observations), output
+    )
+    with output.open(newline="", encoding="utf-8") as stream:
+        exported = list(csv.DictReader(stream))
+    assert {row["units"] for row in exported} == {"gCO2/kWh", "gCO2e/kWh"}
+
+
+def test_dataset_rejects_actual_revisions_with_incompatible_units() -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    live = observation(start, 40)
+    archive = observation(start, 42, source_api=DATASET_API)
+
+    with pytest.raises(ValueError, match="different intensity units"):
+        build_dataset([live, archive], region_id=13)
+
+
+def test_dataset_rejects_sources_without_a_documented_unit_contract() -> None:
+    with pytest.raises(ValueError, match="no intensity unit contract"):
+        observation(
+            datetime(2026, 1, 1, tzinfo=UTC),
+            40,
+            source_api="unregistered-carbon-source",
+        )
+
+
+def test_baseline_evaluation_does_not_compare_different_intensity_units() -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    train = [observation(start + i * timedelta(minutes=30), 40 + i) for i in range(4)]
+    test = [
+        observation(
+            start + 4 * timedelta(minutes=30),
+            48,
+            source_api=DATASET_API,
+        ),
+        observation(
+            start + 5 * timedelta(minutes=30),
+            50,
+            source_api=DATASET_API,
+        ),
+    ]
+
+    report = evaluate_baselines(
+        train,
+        test,
+        horizons=(1,),
+        seasonal_periods=4,
+        minimum_training_observations=4,
+    )
+
+    assert report.sufficient_data is False
+    assert report.results == ()
+    assert report.units is None
+    assert "different intensity units" in (report.insufficient_reason or "")
+
+
+def test_baseline_report_units_follow_actuals_not_archived_forecasts() -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    train = [observation(start + i * timedelta(minutes=30), 40 + i) for i in range(4)]
+    test = [
+        observation(start + (4 + i) * timedelta(minutes=30), 48 + i) for i in range(2)
+    ]
+    test.append(
+        observation(
+            start + 6 * timedelta(minutes=30),
+            50,
+            kind="forecast",
+            source_api=DATASET_API,
+        )
+    )
+
+    report = evaluate_baselines(
+        train,
+        test,
+        horizons=(1,),
+        seasonal_periods=4,
+        minimum_training_observations=4,
+    )
+
+    assert report.units == "gCO2e/kWh"
