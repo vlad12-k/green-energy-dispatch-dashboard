@@ -49,6 +49,8 @@ class CollectorRunResult:
 class CollectorStateStore(Protocol):
     """Persistence contract for observable collection cycles and HTTP attempts."""
 
+    def latest_retry_after_record(self, region_id: int) -> tuple[str, datetime] | None: ...
+
     def begin_run(self, region_id: int, started_at: datetime) -> int: ...
 
     def begin_attempt(self, run_id: int, attempt_number: int, started_at: datetime) -> int: ...
@@ -109,6 +111,55 @@ class NesoCollector:
         self.logger.info("collector_stopped", region_id=self.config.region_id)
 
     def _poll_once_locked(self, stop_event: Event) -> CollectorRunResult:
+        try:
+            retry_after_record = self.state_store.latest_retry_after_record(self.config.region_id)
+            retry_after_deadline = (
+                calculate_retry_after_deadline(*retry_after_record)
+                if retry_after_record is not None
+                else None
+            )
+        except Exception as exc:  # noqa: BLE001 - never fetch without cooldown state
+            self.logger.error(
+                "collector_retry_after_check_failed",
+                region_id=self.config.region_id,
+                error_category=IngestionErrorCategory.PERSISTENCE.value,
+                error_type=type(exc).__name__,
+            )
+            return CollectorRunResult(
+                "failed", None, 0, IngestionErrorCategory.PERSISTENCE.value
+            )
+
+        now = self.now().astimezone(UTC)
+        if retry_after_deadline is not None and retry_after_deadline > now:
+            cooldown_seconds = (retry_after_deadline - now).total_seconds()
+            self.logger.info(
+                "collector_retry_after_cooldown_started",
+                region_id=self.config.region_id,
+                cooldown_until=retry_after_deadline.isoformat(),
+                delay_seconds=cooldown_seconds,
+            )
+            while True:
+                remaining_seconds = (
+                    retry_after_deadline - self.now().astimezone(UTC)
+                ).total_seconds()
+                if remaining_seconds <= 0:
+                    break
+                if self.wait(
+                    stop_event,
+                    min(remaining_seconds, float(self.config.poll_interval_seconds)),
+                ) or stop_event.is_set():
+                    self.logger.info(
+                        "collector_retry_after_cooldown_interrupted",
+                        region_id=self.config.region_id,
+                        cooldown_until=retry_after_deadline.isoformat(),
+                    )
+                    return CollectorRunResult("interrupted", None, 0, "source")
+            self.logger.info(
+                "collector_retry_after_cooldown_elapsed",
+                region_id=self.config.region_id,
+                cooldown_until=retry_after_deadline.isoformat(),
+            )
+
         started_at = self.now().astimezone(UTC)
         started_monotonic = self.monotonic()
         try:
@@ -413,6 +464,23 @@ class NesoCollector:
         return True
 
 
+def calculate_retry_after_deadline(
+    value: str,
+    received_at: datetime,
+) -> datetime | None:
+    """Resolve a stored Retry-After value to its absolute UTC deadline."""
+    if received_at.tzinfo is None or received_at.utcoffset() is None:
+        raise ValueError("received_at must include a timezone")
+    received_at = received_at.astimezone(UTC)
+    seconds = _retry_after_seconds(value, received_at)
+    if seconds is None:
+        return None
+    try:
+        return received_at + timedelta(seconds=seconds)
+    except (OverflowError, ValueError):
+        return datetime.max.replace(tzinfo=UTC)
+
+
 def calculate_retry_delay(
     error: IngestionError,
     attempt_number: int,
@@ -443,19 +511,24 @@ def calculate_retry_delay(
     return min(max_delay_seconds, max(exponential, retry_after_seconds or 0.0))
 
 
-def _retry_after_seconds(value: str | None, now: datetime) -> float | None:
+def _retry_after_seconds(value: str | None, now: datetime) -> int | float | None:
     if value is None:
         return None
-    try:
-        seconds = float(value)
-    except ValueError:
+    value = value.strip()
+    if value.isascii() and value.isdigit():
         try:
-            retry_at = parsedate_to_datetime(value)
-        except (TypeError, ValueError, OverflowError):
-            return None
-        if retry_at.tzinfo is None or retry_at.utcoffset() is None:
-            retry_at = retry_at.replace(tzinfo=UTC)
-        seconds = (retry_at.astimezone(UTC) - now.astimezone(UTC)).total_seconds()
+            return int(value)
+        except ValueError:
+            # Preserve an unrepresentably large valid delta instead of
+            # falling back to a shorter exponential retry.
+            return math.inf
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if retry_at.tzinfo is None or retry_at.utcoffset() is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    seconds = (retry_at.astimezone(UTC) - now.astimezone(UTC)).total_seconds()
     if not math.isfinite(seconds) or seconds < 0:
         return None
     return seconds

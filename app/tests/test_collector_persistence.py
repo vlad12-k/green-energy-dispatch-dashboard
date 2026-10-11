@@ -246,6 +246,71 @@ def test_graceful_shutdown_during_backoff_keeps_postgres_run_incomplete(postgres
     assert status["consecutive_failures"] == 0
 
 
+def test_retry_after_deadline_survives_worker_restart_in_postgres(postgres_engine) -> None:
+    start = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    initial_store = NesoCollectorStateRepository(postgres_engine)
+    failed_run = initial_store.begin_run(13, start)
+    attempt_id = initial_store.begin_attempt(failed_run, 1, start)
+    initial_store.finish_attempt(
+        attempt_id,
+        completed_at=start,
+        outcome="source_failure",
+        error_category="source",
+        error_message="NESO returned HTTP 429",
+        retryable=True,
+        http_status=429,
+        retry_after="3600",
+    )
+    initial_store.finish_run(
+        failed_run,
+        completed_at=start + timedelta(seconds=1),
+        status="failed",
+        attempt_count=1,
+        error_category="source",
+        error_message="NESO returned HTTP 429",
+        duration_seconds=1.0,
+    )
+
+    class ManualClock:
+        current = datetime(2026, 1, 1, 12, 30, tzinfo=UTC)
+
+        def wait(self, event: Event, seconds: float) -> bool:
+            waits.append(seconds)
+            self.current += timedelta(seconds=seconds)
+            return event.is_set()
+
+    clock = ManualClock()
+    waits: list[float] = []
+    request_times: list[datetime] = []
+
+    def ingest_once() -> IngestionResult:
+        request_times.append(clock.current)
+        return result(clock.current - timedelta(minutes=5))
+
+    restarted_store = NesoCollectorStateRepository(postgres_engine)
+    collector = NesoCollector(
+        config=CollectorConfig(
+            region_id=13,
+            poll_interval_seconds=1800,
+            max_attempts=3,
+            retry_base_seconds=5,
+            retry_max_seconds=60,
+        ),
+        ingest_once=ingest_once,
+        state_store=restarted_store,
+        now=lambda: clock.current,
+        wait=clock.wait,
+    )
+
+    assert initial_store.latest_retry_after_record(13) == ("3600", start)
+    next_run = collector.poll_once()
+
+    assert next_run.status == "succeeded"
+    assert initial_store.latest_retry_after_record(13) is None
+    assert request_times == [datetime(2026, 1, 1, 13, 0, tzinfo=UTC)]
+    assert waits == [1800]
+
+
 def test_collector_state_schema_rejects_invalid_attempt_outcomes(postgres_engine) -> None:
     store = NesoCollectorStateRepository(postgres_engine)
     started_at = datetime(2026, 1, 1, tzinfo=UTC)

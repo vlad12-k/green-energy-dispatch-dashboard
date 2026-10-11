@@ -10,6 +10,7 @@ from app.services.neso_carbon_intensity import SOURCE_API, CarbonIntensityReadin
 from app.services.neso_collector import (
     CollectorConfig,
     NesoCollector,
+    calculate_retry_after_deadline,
     calculate_retry_delay,
     count_missing_intervals,
 )
@@ -49,6 +50,36 @@ def test_retry_after_seconds_and_http_date_are_respected_within_limit() -> None:
     assert calculate_retry_delay(date, 1, 5.0, 30.0, now) == 20.0
 
 
+@pytest.mark.parametrize("retry_after", ["15.5", "1e1", "+12"])
+def test_non_integer_retry_after_values_use_bounded_exponential_backoff(retry_after) -> None:
+    error = IngestionError(
+        IngestionErrorCategory.SOURCE,
+        "temporary rate limit",
+        retryable=True,
+        http_status=429,
+        retry_after=retry_after,
+    )
+
+    assert calculate_retry_delay(
+        error, 1, 5.0, 30.0, datetime(2026, 1, 1, tzinfo=UTC)
+    ) == 5.0
+
+
+def test_retry_after_beyond_integer_conversion_limit_never_retries_early() -> None:
+    retry_after = "9" * 5000
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    error = IngestionError(
+        IngestionErrorCategory.SOURCE,
+        "temporary rate limit",
+        retryable=True,
+        http_status=429,
+        retry_after=retry_after,
+    )
+
+    assert calculate_retry_delay(error, 1, 5.0, 30.0, now) is None
+    assert calculate_retry_after_deadline(retry_after, now) == datetime.max.replace(tzinfo=UTC)
+
+
 def test_retry_after_beyond_cap_and_non_retryable_failure_do_not_retry() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     too_long = IngestionError(
@@ -61,6 +92,139 @@ def test_retry_after_beyond_cap_and_non_retryable_failure_do_not_retry() -> None
 
     assert calculate_retry_delay(too_long, 1, 5.0, 30.0, now) is None
     assert calculate_retry_delay(permanent, 1, 5.0, 30.0, now) is None
+
+
+@pytest.mark.parametrize(
+    "retry_after",
+    ["3600", "Thu, 01 Jan 2026 13:00:00 GMT"],
+)
+def test_retry_after_deadline_is_enforced_across_cycles_and_worker_restart(retry_after) -> None:
+    class ManualClock:
+        def __init__(self) -> None:
+            self.current = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+            self.elapsed = 0.0
+
+        def now(self) -> datetime:
+            return self.current
+
+        def monotonic(self) -> float:
+            return self.elapsed
+
+        def wait(self, event: Event, seconds: float) -> bool:
+            waits.append(seconds)
+            self.current += timedelta(seconds=seconds)
+            self.elapsed += seconds
+            return event.is_set()
+
+    store = FakeStateStore()
+    clock = ManualClock()
+    waits: list[float] = []
+    request_times: list[datetime] = []
+
+    def ingest_once():
+        request_times.append(clock.now())
+        if len(request_times) == 1:
+            raise IngestionError(
+                IngestionErrorCategory.SOURCE,
+                "NESO returned HTTP 429",
+                retryable=True,
+                http_status=429,
+                retry_after=retry_after,
+            )
+        return successful_result()
+
+    config = CollectorConfig(
+        region_id=13,
+        poll_interval_seconds=1800,
+        max_attempts=3,
+        retry_base_seconds=5,
+        retry_max_seconds=60,
+    )
+    first_worker = NesoCollector(
+        config=config,
+        ingest_once=ingest_once,
+        state_store=store,
+        now=clock.now,
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+    )
+
+    first_run = first_worker.poll_once()
+    clock.current = datetime(2026, 1, 1, 12, 30, tzinfo=UTC)
+    restarted_worker = NesoCollector(
+        config=config,
+        ingest_once=ingest_once,
+        state_store=store,
+        now=clock.now,
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+    )
+    next_run = restarted_worker.poll_once()
+
+    assert first_run.status == "failed"
+    assert next_run.status == "succeeded"
+    assert store.latest_retry_after_record(13) is None
+    assert request_times == [
+        datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+        datetime(2026, 1, 1, 13, 0, tzinfo=UTC),
+    ]
+    assert waits == [1800]
+
+
+def test_shutdown_interrupts_persisted_retry_after_cooldown() -> None:
+    class ManualClock:
+        def __init__(self) -> None:
+            self.current = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+
+        def now(self) -> datetime:
+            return self.current
+
+    store = FakeStateStore()
+    clock = ManualClock()
+    request_times: list[datetime] = []
+    waits: list[float] = []
+    stop = Event()
+
+    def ingest_once():
+        request_times.append(clock.now())
+        raise IngestionError(
+            IngestionErrorCategory.SOURCE,
+            "NESO returned HTTP 429",
+            retryable=True,
+            http_status=429,
+            retry_after="3600",
+        )
+
+    def stop_during_wait(event: Event, seconds: float) -> bool:
+        waits.append(seconds)
+        event.set()
+        return True
+
+    config = CollectorConfig(region_id=13, poll_interval_seconds=1800)
+    first_worker = NesoCollector(
+        config=config,
+        ingest_once=ingest_once,
+        state_store=store,
+        now=clock.now,
+        wait=lambda _event, seconds: False,
+    )
+    first_worker.poll_once()
+    clock.current = datetime(2026, 1, 1, 12, 30, tzinfo=UTC)
+    restarted_worker = NesoCollector(
+        config=config,
+        ingest_once=ingest_once,
+        state_store=store,
+        now=clock.now,
+        wait=stop_during_wait,
+    )
+
+    result = restarted_worker.poll_once(stop)
+
+    assert result.status == "interrupted"
+    assert request_times == [datetime(2026, 1, 1, 12, 0, tzinfo=UTC)]
+    assert waits == [1800]
+    assert len(store.runs) == 1
+    assert len(store.attempts) == 1
 
 
 def test_missing_intervals_are_detected_without_fabricating_data() -> None:
@@ -106,6 +270,25 @@ class FakeStateStore:
 
     def finish_run(self, run_id: int, **values: object) -> None:
         self.runs[run_id - 1].update(values)
+
+    def latest_retry_after_record(self, region_id: int) -> tuple[str, datetime] | None:
+        latest_record: tuple[datetime, int, dict[str, object]] | None = None
+        for index, attempt in enumerate(self.attempts):
+            completed_at = attempt.get("completed_at")
+            if not isinstance(completed_at, datetime):
+                continue
+            run = self.runs[int(attempt["run_id"]) - 1]
+            candidate = (completed_at, index, attempt)
+            if run["region_id"] == region_id and (
+                latest_record is None or candidate[:2] > latest_record[:2]
+            ):
+                latest_record = candidate
+        if latest_record is None:
+            return None
+        retry_after = latest_record[2].get("retry_after")
+        if not isinstance(retry_after, str):
+            return None
+        return retry_after, latest_record[0]
 
 
 def successful_result() -> IngestionResult:
@@ -338,6 +521,27 @@ def test_state_persistence_failure_prevents_an_untracked_source_request() -> Non
     assert result.status == "failed"
     assert result.error_category == "persistence"
     assert calls == 0
+
+
+def test_retry_after_state_read_failure_prevents_an_unprotected_request() -> None:
+    class UnavailableStateStore(FakeStateStore):
+        def latest_retry_after_record(self, region_id: int):
+            raise RuntimeError("database unavailable")
+
+    calls = 0
+
+    def ingest_once():
+        nonlocal calls
+        calls += 1
+        return successful_result()
+
+    store = UnavailableStateStore()
+    result = make_collector(ingest_once, store).poll_once()
+
+    assert result.status == "failed"
+    assert result.error_category == "persistence"
+    assert calls == 0
+    assert store.runs == []
 
 
 def test_stale_source_is_preserved_as_rejected_and_never_retried() -> None:

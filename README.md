@@ -53,7 +53,7 @@ docker compose -f docker-compose.yml -f docker-compose.database.yml --profile co
 docker compose -f docker-compose.yml -f docker-compose.database.yml --profile collector stop collector
 ```
 
-Configure `COLLECTOR_INTERVAL_SECONDS` (minimum 60; default 1800), `COLLECTOR_MAX_ATTEMPTS` (default 3, including the initial request), `COLLECTOR_BACKOFF_BASE_SECONDS` (default 5), and `COLLECTOR_BACKOFF_MAX_SECONDS` (default 60) in `.env` as needed. Transient network errors, HTTP 429, and 5xx responses may be retried; `Retry-After` is honoured within the configured cap. Validation and database failures are not retried. See the database guide for status fields, recovery behaviour, and limitations. PostgreSQL remains loopback-only; the worker inherits the non-root, read-only, capability-dropped container hardening.
+Configure `COLLECTOR_INTERVAL_SECONDS` (minimum 60; default 1800), `COLLECTOR_MAX_ATTEMPTS` (default 3, including the initial request), `COLLECTOR_BACKOFF_BASE_SECONDS` (default 5), and `COLLECTOR_BACKOFF_MAX_SECONDS` (default 60) in `.env` as needed. Transient network errors, HTTP 429, and 5xx responses may be retried. `Retry-After` is honoured for in-cycle retries; if its deadline exceeds the per-cycle backoff cap, later polling remains paused until that deadline, including after a worker restart. Validation and database failures are not retried. See the database guide for status fields, recovery behaviour, and limitations. PostgreSQL remains loopback-only; the worker inherits the non-root, read-only, capability-dropped container hardening.
 
 ## Development checks
 

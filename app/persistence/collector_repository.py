@@ -56,6 +56,29 @@ class NesoCollectorStateRepository:
             session.flush()
             return run.id
 
+    def latest_retry_after_record(self, region_id: int) -> tuple[str, datetime] | None:
+        """Return the latest completed attempt's Retry-After metadata, if any."""
+        if region_id <= 0:
+            raise ValueError("region_id must be positive")
+        statement = (
+            select(NesoCollectorAttempt.retry_after, NesoCollectorAttempt.completed_at)
+            .join(NesoCollectorRun, NesoCollectorAttempt.run_id == NesoCollectorRun.id)
+            .where(
+                NesoCollectorRun.region_id == region_id,
+                NesoCollectorAttempt.completed_at.is_not(None),
+            )
+            .order_by(
+                NesoCollectorAttempt.completed_at.desc(),
+                NesoCollectorAttempt.id.desc(),
+            )
+            .limit(1)
+        )
+        with Session(self.engine) as session:
+            record = session.execute(statement).first()
+            if record is None or record.retry_after is None or record.completed_at is None:
+                return None
+            return record.retry_after, record.completed_at
+
     def begin_attempt(self, run_id: int, attempt_number: int, started_at: datetime) -> int:
         _require_aware(started_at, "started_at")
         if attempt_number <= 0:
