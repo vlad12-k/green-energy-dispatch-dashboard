@@ -391,6 +391,32 @@ def test_postgres_persists_replayable_forecasts_idempotently(
 
         dataset = load_dataset(session, 13)
 
+    from app.services.regional_actual_validation import (
+        CandidateTarget,
+        validate_candidate_targets,
+    )
+
+    candidate = CandidateTarget(
+        source_id=DATASET_API,
+        target_variable="regional_carbon_intensity",
+        measurement_class=replayed.measurement_type,
+        geography_code="NESO-13",
+        region_id=13,
+        region_name="London",
+        interval_start=replayed.observed_at,
+        interval_end=replayed.valid_until,
+        value=replayed.intensity_gco2_per_kwh,
+        units=replayed.units,
+        source_record_id=501,
+        source_url=source_url,
+        retrieved_at=replayed.retrieved_at,
+    )
+    candidate_validation = validate_candidate_targets(
+        [candidate],
+        requested_start=start,
+        requested_end=start + timedelta(minutes=30),
+    )
+
     assert first.inserted_observation_count == 2
     assert second.inserted_observation_count == 0
     assert second.raw_payload_id == first.raw_payload_id
@@ -404,6 +430,10 @@ def test_postgres_persists_replayable_forecasts_idempotently(
     assert replayed.intensity_gco2_per_kwh == 99
     assert replayed.retrieved_at == acquired_at
     assert {row.units for row in dataset.forecast_observations} == {"gCO2/kWh"}
+    assert candidate_validation.record_decisions[0].eligible_for_region_13_actual is False
+    assert "forecast_not_actual" in candidate_validation.record_decisions[0].rejection_reasons
+    assert candidate_validation.accepted_records == ()
+    assert candidate_validation.missing_intervals == (start,)
 
     monkeypatch.setattr(replay_cli.settings, "database_url", SecretStr("test"))
     monkeypatch.setattr(

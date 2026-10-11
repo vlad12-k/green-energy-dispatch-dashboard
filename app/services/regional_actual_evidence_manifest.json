@@ -1,0 +1,409 @@
+{
+  "manifest_version": 1,
+  "evidence_scope": "Bounded read-only source checks for the London region 13 actual-target assessment; no bulk responses were downloaded.",
+  "evidence_status_definitions": {
+    "verified": "A bounded response was fetched; its request URL, UTC response time, HTTP status and raw-body SHA-256 were recorded.",
+    "externally_reported": "A finding was carried forward from the prior assessment, but its original response capture is not available here.",
+    "unavailable": "The original request or response evidence was not captured and cannot be reconstructed from the available records."
+  },
+  "capture_started_at_utc": "2026-10-11T20:10:01.711328Z",
+  "capture_completed_at_utc": "2026-10-11T20:10:03.506733Z",
+  "response_hash_contract": "response_sha256 is SHA-256 over the raw HTTP response body bytes received for the recorded request. Bodies were not retained in this manifest.",
+  "observations": [
+    {
+      "observation_id": "neso-regional-london-2025-06-01",
+      "evidence_status": "verified",
+      "source_id": "neso-carbon-intensity-api",
+      "source_variant": "regional",
+      "request": {
+        "method": "GET",
+        "url": "https://api.carbonintensity.org.uk/regional/intensity/2025-06-01T00:00Z/2025-06-02T00:00Z/regionid/13",
+        "path_parameters": {
+          "from": "2025-06-01T00:00Z",
+          "to": "2025-06-02T00:00Z",
+          "regionid": 13
+        },
+        "query_parameters": {}
+      },
+      "requested_at_utc": "2026-10-11T20:10:01.711328Z",
+      "verified_at_utc": "2026-10-11T20:10:01.974248Z",
+      "response": {
+        "http_status": 200,
+        "body_bytes": 18081,
+        "response_sha256": "f4685eaeb7e1b96cfc3438cbbc8d4f88e035ff0c728e1d7bb66cd498bc88d686",
+        "body_retained": false
+      },
+      "snapshot": {
+        "region_id": 13,
+        "region_name": "London",
+        "returned_rows": 49,
+        "forecast_rows": 49,
+        "actual_rows": 0,
+        "first_from": "2025-05-31T23:30Z",
+        "last_to": "2025-06-02T00:00Z"
+      },
+      "limitations": [
+        "The first returned interval begins one half-hour before the requested start.",
+        "The response contains interval from/to values but no original issue or revision timestamp."
+      ]
+    },
+    {
+      "observation_id": "neso-regional-london-2026-10-10",
+      "evidence_status": "verified",
+      "source_id": "neso-carbon-intensity-api",
+      "source_variant": "regional",
+      "request": {
+        "method": "GET",
+        "url": "https://api.carbonintensity.org.uk/regional/intensity/2026-10-10T00:00Z/2026-10-11T00:00Z/regionid/13",
+        "path_parameters": {
+          "from": "2026-10-10T00:00Z",
+          "to": "2026-10-11T00:00Z",
+          "regionid": 13
+        },
+        "query_parameters": {}
+      },
+      "requested_at_utc": "2026-10-11T20:10:01.974650Z",
+      "verified_at_utc": "2026-10-11T20:10:02.147712Z",
+      "response": {
+        "http_status": 200,
+        "body_bytes": 17953,
+        "response_sha256": "a6b6fabffd8badacf9c78f5b1df262067dd89a69e0565b8c12e82bc2cf925b84",
+        "body_retained": false
+      },
+      "snapshot": {
+        "region_id": 13,
+        "region_name": "London",
+        "returned_rows": 49,
+        "forecast_rows": 49,
+        "actual_rows": 0,
+        "first_from": "2026-10-09T23:30Z",
+        "last_to": "2026-10-11T00:00Z"
+      },
+      "limitations": [
+        "The first returned interval begins one half-hour before the requested start.",
+        "The response contains interval from/to values but no original issue or revision timestamp."
+      ]
+    },
+    {
+      "observation_id": "neso-regional-london-2017-10-01",
+      "evidence_status": "verified",
+      "source_id": "neso-carbon-intensity-api",
+      "source_variant": "regional",
+      "request": {
+        "method": "GET",
+        "url": "https://api.carbonintensity.org.uk/regional/intensity/2017-10-01T00:00Z/2017-10-02T00:00Z/regionid/13",
+        "path_parameters": {
+          "from": "2017-10-01T00:00Z",
+          "to": "2017-10-02T00:00Z",
+          "regionid": 13
+        },
+        "query_parameters": {}
+      },
+      "requested_at_utc": "2026-10-11T20:10:02.147962Z",
+      "verified_at_utc": "2026-10-11T20:10:02.207914Z",
+      "response": {
+        "http_status": 200,
+        "body_bytes": 20,
+        "response_sha256": "ebf45b11cc721194284016e6327972a7e25c3e7064e6ee2fbf5c05c975f3ecb5",
+        "body_retained": false
+      },
+      "snapshot": {
+        "region_id": null,
+        "returned_rows": 0
+      },
+      "limitations": [
+        "An empty historical probe does not establish a guaranteed first-available date."
+      ]
+    },
+    {
+      "observation_id": "neso-national-2026-10-10",
+      "evidence_status": "verified",
+      "source_id": "neso-carbon-intensity-api",
+      "source_variant": "national",
+      "request": {
+        "method": "GET",
+        "url": "https://api.carbonintensity.org.uk/intensity/2026-10-10T00:00Z/2026-10-11T00:00Z",
+        "path_parameters": {
+          "from": "2026-10-10T00:00Z",
+          "to": "2026-10-11T00:00Z"
+        },
+        "query_parameters": {}
+      },
+      "requested_at_utc": "2026-10-11T20:10:02.207983Z",
+      "verified_at_utc": "2026-10-11T20:10:02.306327Z",
+      "response": {
+        "http_status": 200,
+        "body_bytes": 5302,
+        "response_sha256": "89dfe2fd9d01876ed6e2c9ab524cd8ecdfa580c6c0b773fe6a55c7e5425e29c6",
+        "body_retained": false
+      },
+      "snapshot": {
+        "geographic_scope": "Great Britain national system",
+        "returned_rows": 49,
+        "forecast_rows": 49,
+        "actual_rows": 49,
+        "first_from": "2026-10-09T23:30Z",
+        "last_to": "2026-10-11T00:00Z"
+      },
+      "limitations": [
+        "The first returned interval begins one half-hour before the requested start.",
+        "The national actual field is an estimate, not a London regional observation."
+      ]
+    },
+    {
+      "observation_id": "ukpn-carbon-intensity-total-count",
+      "evidence_status": "verified",
+      "source_id": "ukpn-carbon-intensity",
+      "source_variant": "dataset-total-count",
+      "request": {
+        "method": "GET",
+        "url": "https://ukpowernetworks.opendatasoft.com/api/explore/v2.1/catalog/datasets/ukpn-carbon-intensity/records?limit=1",
+        "query_parameters": {
+          "limit": "1"
+        }
+      },
+      "requested_at_utc": "2026-10-11T20:10:02.306474Z",
+      "verified_at_utc": "2026-10-11T20:10:02.564052Z",
+      "response": {
+        "http_status": 200,
+        "body_bytes": 333,
+        "response_sha256": "26ee478ace3fe817f26ba6e788a79bb8919b00a947b9709d6fa935a44dd59e76",
+        "body_retained": false
+      },
+      "snapshot": {
+        "record_count": 32603,
+        "rows_returned": 1,
+        "count_is_dataset_total": true
+      },
+      "limitations": [
+        "The single returned record is not used as an actual-target claim."
+      ]
+    },
+    {
+      "observation_id": "ukpn-carbon-intensity-epn-count",
+      "evidence_status": "verified",
+      "source_id": "ukpn-carbon-intensity",
+      "source_variant": "licence-area-count",
+      "request": {
+        "method": "GET",
+        "url": "https://ukpowernetworks.opendatasoft.com/api/explore/v2.1/catalog/datasets/ukpn-carbon-intensity/records?where=licence_area%3D%22EPN%22&limit=1",
+        "query_parameters": {
+          "where": "licence_area=\"EPN\"",
+          "limit": "1"
+        }
+      },
+      "requested_at_utc": "2026-10-11T20:10:02.564092Z",
+      "verified_at_utc": "2026-10-11T20:10:02.691234Z",
+      "response": {
+        "http_status": 200,
+        "body_bytes": 330,
+        "response_sha256": "91362a55db7e8958ee3a78efb8b2a7deae6876c6dccd02fb209b0c5bf59040cd",
+        "body_retained": false
+      },
+      "snapshot": {
+        "licence_area": "EPN",
+        "record_count": 22725
+      }
+    },
+    {
+      "observation_id": "ukpn-carbon-intensity-spn-count",
+      "evidence_status": "verified",
+      "source_id": "ukpn-carbon-intensity",
+      "source_variant": "licence-area-count",
+      "request": {
+        "method": "GET",
+        "url": "https://ukpowernetworks.opendatasoft.com/api/explore/v2.1/catalog/datasets/ukpn-carbon-intensity/records?where=licence_area%3D%22SPN%22&limit=1",
+        "query_parameters": {
+          "where": "licence_area=\"SPN\"",
+          "limit": "1"
+        }
+      },
+      "requested_at_utc": "2026-10-11T20:10:02.691306Z",
+      "verified_at_utc": "2026-10-11T20:10:03.084143Z",
+      "response": {
+        "http_status": 200,
+        "body_bytes": 341,
+        "response_sha256": "788e78cd475a2764f4dc7ba31a632ab29bb0c7c448c513b20373c941d105caeb",
+        "body_retained": false
+      },
+      "snapshot": {
+        "licence_area": "SPN",
+        "record_count": 9878
+      }
+    },
+    {
+      "observation_id": "ukpn-carbon-intensity-lpn-count",
+      "evidence_status": "verified",
+      "source_id": "ukpn-carbon-intensity",
+      "source_variant": "licence-area-count",
+      "request": {
+        "method": "GET",
+        "url": "https://ukpowernetworks.opendatasoft.com/api/explore/v2.1/catalog/datasets/ukpn-carbon-intensity/records?where=licence_area%3D%22LPN%22&limit=1",
+        "query_parameters": {
+          "where": "licence_area=\"LPN\"",
+          "limit": "1"
+        }
+      },
+      "requested_at_utc": "2026-10-11T20:10:03.084220Z",
+      "verified_at_utc": "2026-10-11T20:10:03.216180Z",
+      "response": {
+        "http_status": 200,
+        "body_bytes": 33,
+        "response_sha256": "b40a5ce424590aa2d85084c9a423d90252d3ba8a22202193a62874533698a3a3",
+        "body_retained": false
+      },
+      "snapshot": {
+        "licence_area": "LPN",
+        "record_count": 0
+      }
+    },
+    {
+      "observation_id": "ukpn-carbon-intensity-coverage-by-area",
+      "evidence_status": "verified",
+      "source_id": "ukpn-carbon-intensity",
+      "source_variant": "aggregate-coverage",
+      "request": {
+        "method": "GET",
+        "url": "https://ukpowernetworks.opendatasoft.com/api/explore/v2.1/catalog/datasets/ukpn-carbon-intensity/records?select=licence_area%2Ccount%28%2A%29%2Cmin%28half_hour_period%29%2Cmax%28half_hour_period%29%2Ccount%28blended_carbon_intensity%29&group_by=licence_area&limit=10",
+        "query_parameters": {
+          "select": "licence_area,count(*),min(half_hour_period),max(half_hour_period),count(blended_carbon_intensity)",
+          "group_by": "licence_area",
+          "limit": "10"
+        }
+      },
+      "requested_at_utc": "2026-10-11T20:10:03.349270Z",
+      "verified_at_utc": "2026-10-11T20:10:03.506733Z",
+      "response": {
+        "http_status": 200,
+        "body_bytes": 417,
+        "response_sha256": "3f04dd0524be5f73b5a7fa9c6789101d7b23eea9f4128b8975cb0ae59f0afb46",
+        "body_retained": false
+      },
+      "snapshot": {
+        "areas": [
+          {
+            "licence_area": "EPN",
+            "record_count": 22725,
+            "coverage_start": "2026-09-11T00:00:00+00:00",
+            "coverage_end": "2026-10-11T19:30:00+00:00",
+            "non_null_blended_intensity_count": 10773
+          },
+          {
+            "licence_area": "SPN",
+            "record_count": 9878,
+            "coverage_start": "2026-09-11T00:00:00+00:00",
+            "coverage_end": "2026-10-11T19:30:00+00:00",
+            "non_null_blended_intensity_count": 5064
+          }
+        ],
+        "lpn_record_count": 0,
+        "total_record_count": 32603,
+        "total_non_null_blended_intensity_count": 15837
+      },
+      "limitations": [
+        "The aggregate API calls were issued serially, not as one atomic database snapshot; counts may change between requests.",
+        "Aggregates provide coverage bounds and counts, not the underlying rows."
+      ]
+    },
+    {
+      "observation_id": "neso-regional-archive-2026-10-11-prior-assessment",
+      "evidence_status": "externally_reported",
+      "source_id": "neso-regional-carbon-intensity-forecast-datastore",
+      "source_variant": "london-archive-snapshot",
+      "request": {
+        "method": "GET",
+        "url": null,
+        "url_template": "https://api.neso.energy/api/3/action/datastore_search_sql",
+        "query_parameters": {
+          "sql": "SELECT _id, datetime, \"London\" FROM \"c16b0e19-c02a-44a8-ba05-4db2c0545a2a\" WHERE datetime >= '<UTC_START>' AND datetime < '<UTC_END>' ORDER BY datetime, _id"
+        },
+        "parameter_values_status": "the original bounded acquisition windows were not preserved in the assessment evidence"
+      },
+      "requested_at_utc": null,
+      "verified_at_utc": null,
+      "response": {
+        "http_status": null,
+        "body_bytes": null,
+        "response_sha256": null,
+        "body_retained": false
+      },
+      "snapshot": {
+        "reported_observation_count": 136190,
+        "reported_latest_record": "2026-07-24T12:00:00Z",
+        "reported_snapshot_date": "2026-10-11"
+      },
+      "limitations": [
+        "These totals are transcribed from the prior assessment and were not re-fetched in this bounded correction.",
+        "The prior raw response bytes, response hash, and acquisition timestamp in UTC are unavailable here.",
+        "The archive is a forecast dataset, not an actual-target source."
+      ]
+    },
+    {
+      "observation_id": "elexon-bmrs-b1610-official-schema",
+      "evidence_status": "externally_reported",
+      "source_id": "elexon-bmrs-b1610",
+      "source_variant": "official-schema-documentation",
+      "request": {
+        "method": "GET",
+        "url": "https://bmrs.elexon.co.uk/api-documentation/endpoint/datasets/B1610/stream",
+        "query_parameters": {}
+      },
+      "requested_at_utc": null,
+      "verified_at_utc": null,
+      "response": {
+        "http_status": null,
+        "body_bytes": null,
+        "response_sha256": null,
+        "body_retained": false
+      },
+      "claims": [
+        "B1610 documents metered energy in MWh per BM Unit and Settlement Period; it does not define a London regional carbon-intensity target."
+      ],
+      "limitations": [
+        "This correction did not refetch the Elexon documentation or query BMRS data."
+      ]
+    },
+    {
+      "observation_id": "elexon-bmrs-b1610-data-response",
+      "evidence_status": "unavailable",
+      "source_id": "elexon-bmrs-b1610",
+      "source_variant": "historical-data-response",
+      "request": {
+        "method": "GET",
+        "url": null,
+        "query_parameters": null,
+        "not_performed": true
+      },
+      "requested_at_utc": null,
+      "verified_at_utc": null,
+      "response": {
+        "http_status": null,
+        "body_bytes": null,
+        "response_sha256": null,
+        "body_retained": false
+      },
+      "unavailable_reason": "No BMRS B1610 data response was captured in the prior assessment or this correction; no data query was performed."
+    },
+    {
+      "observation_id": "neso-regional-archive-original-capture",
+      "evidence_status": "unavailable",
+      "source_id": "neso-regional-carbon-intensity-forecast-datastore",
+      "source_variant": "original-snapshot-capture",
+      "request": {
+        "method": "GET",
+        "url": null,
+        "query_parameters": null,
+        "original_request_captured": false
+      },
+      "requested_at_utc": null,
+      "verified_at_utc": null,
+      "response": {
+        "http_status": null,
+        "body_bytes": null,
+        "response_sha256": null,
+        "body_retained": false
+      },
+      "unavailable_reason": "The original bounded query windows, UTC retrieval time and response bytes for the 136190-row prior snapshot were not preserved. The snapshot remains separately labelled externally_reported."
+    }
+  ]
+}
