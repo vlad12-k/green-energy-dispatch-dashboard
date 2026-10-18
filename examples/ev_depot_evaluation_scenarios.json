@@ -1,0 +1,612 @@
+{
+  "suite_id": "ev-depot-synthetic-evaluation",
+  "suite_version": "1.0",
+  "source_classification": "synthetic_scenario",
+  "source_id": "synthetic-scenario",
+  "geography_code": "simulation-only",
+  "provenance_label": "synthetic:ev-depot-evaluation-v1",
+  "scenarios": [
+    {
+      "scenario_id": "flexible-single-vehicle",
+      "version": "1.0",
+      "categories": [
+        "flexible_vehicle",
+        "varying_carbon_intensity"
+      ],
+      "description": "One vehicle can charge in either of two hourly periods; intensity varies.",
+      "assumptions": [
+        "All carbon intensities and charging requests are synthetic test inputs.",
+        "Power is expressed in kW, energy in kWh, and all timestamps are UTC."
+      ],
+      "scenario": {
+        "scenario_id": "flexible-single-vehicle",
+        "start_at": "2026-01-01T00:00:00Z",
+        "interval_minutes": 60,
+        "intervals": 2,
+        "depot_power_kw": 7.0,
+        "vehicles": [
+          {
+            "vehicle_id": "flex-1",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T02:00:00Z",
+            "required_energy_kwh": 8.0,
+            "charging_power_kw": 7.0
+          }
+        ],
+        "geography_code": "simulation-only",
+        "carbon_intensity_profile": [
+          {
+            "interval_start": "2026-01-01T00:00:00Z",
+            "interval_end": "2026-01-01T01:00:00Z",
+            "intensity_value": 400.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          },
+          {
+            "interval_start": "2026-01-01T01:00:00Z",
+            "interval_end": "2026-01-01T02:00:00Z",
+            "intensity_value": 100.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "identical-window-fleet",
+      "version": "1.0",
+      "categories": [
+        "multiple_vehicles_identical_windows",
+        "equal_deadlines",
+        "heavy_depot_competition"
+      ],
+      "description": "Three vehicles share identical availability windows and compete for a saturated depot limit.",
+      "assumptions": [
+        "All carbon intensities and charging requests are synthetic test inputs.",
+        "Power is expressed in kW, energy in kWh, and all timestamps are UTC."
+      ],
+      "scenario": {
+        "scenario_id": "identical-window-fleet",
+        "start_at": "2026-01-01T00:00:00Z",
+        "interval_minutes": 60,
+        "intervals": 2,
+        "depot_power_kw": 3.0,
+        "vehicles": [
+          {
+            "vehicle_id": "fleet-a",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T02:00:00Z",
+            "required_energy_kwh": 2.0,
+            "charging_power_kw": 2.0
+          },
+          {
+            "vehicle_id": "fleet-b",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T02:00:00Z",
+            "required_energy_kwh": 2.0,
+            "charging_power_kw": 2.0
+          },
+          {
+            "vehicle_id": "fleet-c",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T02:00:00Z",
+            "required_energy_kwh": 2.0,
+            "charging_power_kw": 2.0
+          }
+        ],
+        "geography_code": "simulation-only",
+        "carbon_intensity_profile": [
+          {
+            "interval_start": "2026-01-01T00:00:00Z",
+            "interval_end": "2026-01-01T01:00:00Z",
+            "intensity_value": 250.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          },
+          {
+            "interval_start": "2026-01-01T01:00:00Z",
+            "interval_end": "2026-01-01T02:00:00Z",
+            "intensity_value": 100.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "deadline-order-matters",
+      "version": "1.0",
+      "categories": [
+        "different_departure_deadlines",
+        "edf_feasible_baseline_fails"
+      ],
+      "description": "EDF completes a short-window vehicle first; the vehicle-ID baseline can miss it.",
+      "assumptions": [
+        "All carbon intensities and charging requests are synthetic test inputs.",
+        "Power is expressed in kW, energy in kWh, and all timestamps are UTC."
+      ],
+      "scenario": {
+        "scenario_id": "deadline-order-matters",
+        "start_at": "2026-01-01T00:00:00Z",
+        "interval_minutes": 60,
+        "intervals": 2,
+        "depot_power_kw": 4.0,
+        "vehicles": [
+          {
+            "vehicle_id": "A-flexible",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T02:00:00Z",
+            "required_energy_kwh": 4.0,
+            "charging_power_kw": 4.0
+          },
+          {
+            "vehicle_id": "B-short-window",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T01:00:00Z",
+            "required_energy_kwh": 4.0,
+            "charging_power_kw": 4.0
+          }
+        ],
+        "geography_code": "simulation-only",
+        "carbon_intensity_profile": [
+          {
+            "interval_start": "2026-01-01T00:00:00Z",
+            "interval_end": "2026-01-01T01:00:00Z",
+            "intensity_value": 300.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          },
+          {
+            "interval_start": "2026-01-01T01:00:00Z",
+            "interval_end": "2026-01-01T02:00:00Z",
+            "intensity_value": 100.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "heavy-depot-competition",
+      "version": "1.0",
+      "categories": [
+        "heavy_depot_competition",
+        "tight_but_feasible"
+      ],
+      "description": "Four vehicles compete for a 4 kW depot limit; aggregate demand remains feasible over two hours.",
+      "assumptions": [
+        "All carbon intensities and charging requests are synthetic test inputs.",
+        "Power is expressed in kW, energy in kWh, and all timestamps are UTC."
+      ],
+      "scenario": {
+        "scenario_id": "heavy-depot-competition",
+        "start_at": "2026-01-01T00:00:00Z",
+        "interval_minutes": 60,
+        "intervals": 2,
+        "depot_power_kw": 4.0,
+        "vehicles": [
+          {
+            "vehicle_id": "comp-a",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T02:00:00Z",
+            "required_energy_kwh": 1.5,
+            "charging_power_kw": 4.0
+          },
+          {
+            "vehicle_id": "comp-b",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T02:00:00Z",
+            "required_energy_kwh": 1.5,
+            "charging_power_kw": 4.0
+          },
+          {
+            "vehicle_id": "comp-c",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T02:00:00Z",
+            "required_energy_kwh": 1.5,
+            "charging_power_kw": 4.0
+          },
+          {
+            "vehicle_id": "comp-d",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T02:00:00Z",
+            "required_energy_kwh": 1.5,
+            "charging_power_kw": 4.0
+          }
+        ],
+        "geography_code": "simulation-only",
+        "carbon_intensity_profile": [
+          {
+            "interval_start": "2026-01-01T00:00:00Z",
+            "interval_end": "2026-01-01T01:00:00Z",
+            "intensity_value": 200.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          },
+          {
+            "interval_start": "2026-01-01T01:00:00Z",
+            "interval_end": "2026-01-01T02:00:00Z",
+            "intensity_value": 100.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "partial-overlapping-windows",
+      "version": "1.0",
+      "categories": [
+        "partial_availability",
+        "overlapping_windows"
+      ],
+      "description": "Two vehicles have partially overlapping half-hour windows; depot power binds during the overlap.",
+      "assumptions": [
+        "All carbon intensities and charging requests are synthetic test inputs.",
+        "Power is expressed in kW, energy in kWh, and all timestamps are UTC."
+      ],
+      "scenario": {
+        "scenario_id": "partial-overlapping-windows",
+        "start_at": "2026-01-01T00:00:00Z",
+        "interval_minutes": 60,
+        "intervals": 1,
+        "depot_power_kw": 4.0,
+        "vehicles": [
+          {
+            "vehicle_id": "overlap-a",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T00:30:00Z",
+            "required_energy_kwh": 1.25,
+            "charging_power_kw": 3.0
+          },
+          {
+            "vehicle_id": "overlap-b",
+            "availability_start": "2026-01-01T00:15:00Z",
+            "availability_end": "2026-01-01T00:45:00Z",
+            "required_energy_kwh": 1.25,
+            "charging_power_kw": 3.0
+          }
+        ],
+        "geography_code": "simulation-only",
+        "carbon_intensity_profile": [
+          {
+            "interval_start": "2026-01-01T00:00:00Z",
+            "interval_end": "2026-01-01T01:00:00Z",
+            "intensity_value": 150.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "constant-carbon-no-improvement",
+      "version": "1.0",
+      "categories": [
+        "constant_carbon_intensity",
+        "carbon_shift_cannot_improve"
+      ],
+      "description": "A constant intensity makes every feasible charging allocation equal in proxy; there is no lower-intensity opportunity.",
+      "assumptions": [
+        "All carbon intensities and charging requests are synthetic test inputs.",
+        "Power is expressed in kW, energy in kWh, and all timestamps are UTC."
+      ],
+      "scenario": {
+        "scenario_id": "constant-carbon-no-improvement",
+        "start_at": "2026-01-01T00:00:00Z",
+        "interval_minutes": 60,
+        "intervals": 2,
+        "depot_power_kw": 2.0,
+        "vehicles": [
+          {
+            "vehicle_id": "constant-1",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T02:00:00Z",
+            "required_energy_kwh": 4.0,
+            "charging_power_kw": 2.0
+          }
+        ],
+        "geography_code": "simulation-only",
+        "carbon_intensity_profile": [
+          {
+            "interval_start": "2026-01-01T00:00:00Z",
+            "interval_end": "2026-01-01T01:00:00Z",
+            "intensity_value": 100.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          },
+          {
+            "interval_start": "2026-01-01T01:00:00Z",
+            "interval_end": "2026-01-01T02:00:00Z",
+            "intensity_value": 100.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "tight-but-feasible-demand",
+      "version": "1.0",
+      "categories": [
+        "tight_but_feasible",
+        "depot_capacity_saturation"
+      ],
+      "description": "A single charger runs near its 14 kWh two-hour physical upper bound while meeting a 13.9 kWh request.",
+      "assumptions": [
+        "All carbon intensities and charging requests are synthetic test inputs.",
+        "Power is expressed in kW, energy in kWh, and all timestamps are UTC."
+      ],
+      "scenario": {
+        "scenario_id": "tight-but-feasible-demand",
+        "start_at": "2026-01-01T00:00:00Z",
+        "interval_minutes": 60,
+        "intervals": 2,
+        "depot_power_kw": 7.0,
+        "vehicles": [
+          {
+            "vehicle_id": "tight-1",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T02:00:00Z",
+            "required_energy_kwh": 13.9,
+            "charging_power_kw": 7.0
+          }
+        ],
+        "geography_code": "simulation-only",
+        "carbon_intensity_profile": [
+          {
+            "interval_start": "2026-01-01T00:00:00Z",
+            "interval_end": "2026-01-01T01:00:00Z",
+            "intensity_value": 250.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          },
+          {
+            "interval_start": "2026-01-01T01:00:00Z",
+            "interval_end": "2026-01-01T02:00:00Z",
+            "intensity_value": 100.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "individual-capacity-infeasible",
+      "version": "1.0",
+      "categories": [
+        "clearly_infeasible_demand",
+        "saturated_charging_window"
+      ],
+      "description": "One vehicle requests more energy than its charger can deliver inside its one-hour window.",
+      "assumptions": [
+        "All carbon intensities and charging requests are synthetic test inputs.",
+        "Power is expressed in kW, energy in kWh, and all timestamps are UTC."
+      ],
+      "scenario": {
+        "scenario_id": "individual-capacity-infeasible",
+        "start_at": "2026-01-01T00:00:00Z",
+        "interval_minutes": 60,
+        "intervals": 1,
+        "depot_power_kw": 2.0,
+        "vehicles": [
+          {
+            "vehicle_id": "impossible-1",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T01:00:00Z",
+            "required_energy_kwh": 3.0,
+            "charging_power_kw": 2.0
+          }
+        ],
+        "geography_code": "simulation-only",
+        "carbon_intensity_profile": [
+          {
+            "interval_start": "2026-01-01T00:00:00Z",
+            "interval_end": "2026-01-01T01:00:00Z",
+            "intensity_value": 100.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "tiny-energy-boundary",
+      "version": "1.0",
+      "categories": [
+        "tiny_energy_request",
+        "numerical_boundary"
+      ],
+      "description": "A 1e-9 kWh request exercises the lower numerical boundary without weakening completion checks.",
+      "assumptions": [
+        "All carbon intensities and charging requests are synthetic test inputs.",
+        "Power is expressed in kW, energy in kWh, and all timestamps are UTC."
+      ],
+      "scenario": {
+        "scenario_id": "tiny-energy-boundary",
+        "start_at": "2026-01-01T00:00:00Z",
+        "interval_minutes": 60,
+        "intervals": 1,
+        "depot_power_kw": 1e-09,
+        "vehicles": [
+          {
+            "vehicle_id": "tiny-1",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T01:00:00Z",
+            "required_energy_kwh": 1e-09,
+            "charging_power_kw": 1e-09
+          }
+        ],
+        "geography_code": "simulation-only",
+        "carbon_intensity_profile": [
+          {
+            "interval_start": "2026-01-01T00:00:00Z",
+            "interval_end": "2026-01-01T01:00:00Z",
+            "intensity_value": 0.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "maximum-numeric-boundary",
+      "version": "1.0",
+      "categories": [
+        "large_valid_numeric_inputs",
+        "numerical_boundary"
+      ],
+      "description": "A single vehicle uses the documented maximum supported energy, power and intensity values.",
+      "assumptions": [
+        "All carbon intensities and charging requests are synthetic test inputs.",
+        "Power is expressed in kW, energy in kWh, and all timestamps are UTC."
+      ],
+      "scenario": {
+        "scenario_id": "maximum-numeric-boundary",
+        "start_at": "2026-01-01T00:00:00Z",
+        "interval_minutes": 60,
+        "intervals": 1,
+        "depot_power_kw": 1000000000.0,
+        "vehicles": [
+          {
+            "vehicle_id": "maximum-1",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T01:00:00Z",
+            "required_energy_kwh": 1000000000.0,
+            "charging_power_kw": 1000000000.0
+          }
+        ],
+        "geography_code": "simulation-only",
+        "carbon_intensity_profile": [
+          {
+            "interval_start": "2026-01-01T00:00:00Z",
+            "interval_end": "2026-01-01T01:00:00Z",
+            "intensity_value": 1000000000.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "zero-and-repeated-carbon-values",
+      "version": "1.0",
+      "categories": [
+        "zero_carbon_intensity",
+        "repeated_carbon_values"
+      ],
+      "description": "Zero and repeated synthetic intensity values verify proxy units and no false claim when proxy differences are absent.",
+      "assumptions": [
+        "All carbon intensities and charging requests are synthetic test inputs.",
+        "Power is expressed in kW, energy in kWh, and all timestamps are UTC."
+      ],
+      "scenario": {
+        "scenario_id": "zero-and-repeated-carbon-values",
+        "start_at": "2026-01-01T00:00:00Z",
+        "interval_minutes": 60,
+        "intervals": 4,
+        "depot_power_kw": 2.0,
+        "vehicles": [
+          {
+            "vehicle_id": "zero-repeat-1",
+            "availability_start": "2026-01-01T00:00:00Z",
+            "availability_end": "2026-01-01T04:00:00Z",
+            "required_energy_kwh": 2.0,
+            "charging_power_kw": 2.0
+          }
+        ],
+        "geography_code": "simulation-only",
+        "carbon_intensity_profile": [
+          {
+            "interval_start": "2026-01-01T00:00:00Z",
+            "interval_end": "2026-01-01T01:00:00Z",
+            "intensity_value": 0.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          },
+          {
+            "interval_start": "2026-01-01T01:00:00Z",
+            "interval_end": "2026-01-01T02:00:00Z",
+            "intensity_value": 0.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          },
+          {
+            "interval_start": "2026-01-01T02:00:00Z",
+            "interval_end": "2026-01-01T03:00:00Z",
+            "intensity_value": 100.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          },
+          {
+            "interval_start": "2026-01-01T03:00:00Z",
+            "interval_end": "2026-01-01T04:00:00Z",
+            "intensity_value": 100.0,
+            "intensity_unit": "gCO2/kWh",
+            "source_classification": "synthetic_scenario",
+            "source_id": "synthetic-scenario",
+            "geography_code": "simulation-only",
+            "provenance_label": "synthetic:ev-depot-evaluation-v1"
+          }
+        ]
+      }
+    }
+  ]
+}
