@@ -391,12 +391,14 @@ def _shift_energy_to_lower_carbon_segments(
 
 
 def _request_is_satisfied(required_energy_kwh: float, delivered_energy_kwh: float) -> bool:
-    return math.isclose(
-        delivered_energy_kwh,
-        required_energy_kwh,
-        rel_tol=1e-12,
-        abs_tol=2 * math.ulp(required_energy_kwh),
+    deficit = required_energy_kwh - delivered_energy_kwh
+    if deficit <= 0.0:
+        return True
+    tolerance = min(
+        2 * math.ulp(required_energy_kwh),
+        required_energy_kwh * 1e-12,
     )
+    return deficit <= tolerance
 
 
 def _build_schedule_report(
@@ -418,10 +420,17 @@ def _build_schedule_report(
     }
     delivered = delivered_unrounded
     unmet = {
-        vehicle_id: max(
-            vehicle_by_id[vehicle_id].required_energy_kwh
-            - delivered_unrounded[vehicle_id],
-            0.0,
+        vehicle_id: (
+            0.0
+            if _request_is_satisfied(
+                vehicle_by_id[vehicle_id].required_energy_kwh,
+                delivered_unrounded[vehicle_id],
+            )
+            else max(
+                vehicle_by_id[vehicle_id].required_energy_kwh
+                - delivered_unrounded[vehicle_id],
+                0.0,
+            )
         )
         for vehicle_id in sorted(vehicle_by_id)
     }

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
 
 from app.schemas.ev_depot import CarbonAwareDepotScenario
-from app.services.carbon_aware_scheduler import schedule_carbon_aware
+from app.services.carbon_aware_scheduler import (
+    _request_is_satisfied,
+    schedule_carbon_aware,
+)
 
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
@@ -174,6 +178,82 @@ def test_failed_carbon_aware_heuristic_does_not_claim_scenario_infeasibility() -
     assert result.comparison_eligible is False
     assert result.absolute_carbon_proxy_reduction is None
     assert result.carbon_aware.constraint_checks.energy_conservation_respected is True
+
+
+def test_large_energy_deficit_is_not_eligible_for_equivalent_service() -> None:
+    vehicle = {
+        "vehicle_id": "large-request",
+        "availability_start": START,
+        "availability_end": START + timedelta(hours=1),
+        "required_energy_kwh": 1_000_000_000.0,
+        "charging_power_kw": 999_999_999.9995,
+    }
+
+    result = schedule_carbon_aware(
+        _scenario(
+            intensities=(100.0,),
+            vehicles=[vehicle],
+            depot_power_kw=999_999_999.9995,
+        )
+    )
+
+    assert result.baseline_feasible is False
+    assert result.baseline_requirements_met_for_comparison is False
+    assert result.carbon_aware_feasible is False
+    assert result.carbon_aware.feasible is False
+    assert result.carbon_aware.feasibility_classification == "complete_schedule_not_demonstrated"
+    assert result.carbon_aware.delivered_energy_kwh["large-request"] == pytest.approx(
+        999_999_999.9995
+    )
+    unmet = result.carbon_aware.unmet_energy_kwh["large-request"]
+    assert unmet == pytest.approx(
+        vehicle["required_energy_kwh"]
+        - result.carbon_aware.delivered_energy_kwh["large-request"]
+    )
+    assert 0.00049 < unmet < 0.00051
+    assert result.comparison_eligible is False
+    assert result.absolute_carbon_proxy_reduction is None
+    assert result.percentage_carbon_proxy_reduction is None
+    assert result.baseline_constraint_checks.energy_conservation_respected is True
+    assert result.carbon_aware.constraint_checks.energy_conservation_respected is True
+    assert result.carbon_aware.constraint_checks.vehicle_power_limits_respected is True
+    assert result.carbon_aware.constraint_checks.depot_power_limit_respected is True
+
+
+def test_full_service_tolerance_accepts_only_small_float_representation_error() -> None:
+    required = 1_000_000_000.0
+
+    assert _request_is_satisfied(required, math.nextafter(required, 0.0)) is True
+    assert _request_is_satisfied(required, 999_999_999.9995) is False
+    assert _request_is_satisfied(1.0, math.nextafter(1.0, 0.0)) is True
+    assert _request_is_satisfied(1e-9, 0.0) is False
+    assert _request_is_satisfied(1e-300, 0.0) is False
+
+
+def test_small_rounding_deficit_is_normalised_as_complete_service() -> None:
+    vehicle = {
+        "vehicle_id": "rounding-request",
+        "availability_start": START,
+        "availability_end": START + timedelta(hours=1),
+        "required_energy_kwh": 8.0,
+        "charging_power_kw": math.nextafter(8.0, 0.0),
+    }
+
+    result = schedule_carbon_aware(
+        _scenario(
+            intensities=(100.0,),
+            vehicles=[vehicle],
+            depot_power_kw=vehicle["charging_power_kw"],
+        )
+    )
+
+    assert result.baseline_feasible is True
+    assert result.baseline_requirements_met_for_comparison is True
+    assert result.carbon_aware_feasible is True
+    assert result.carbon_aware.feasible is True
+    assert result.carbon_aware.unmet_energy_kwh["rounding-request"] == 0.0
+    assert result.carbon_aware.constraint_checks.energy_conservation_respected is True
+    assert result.comparison_eligible is True
 
 
 def test_tiny_unmet_energy_is_not_reported_as_complete_or_comparable() -> None:
