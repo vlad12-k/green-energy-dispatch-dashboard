@@ -69,6 +69,8 @@ def check_discrete_reference(
     states: dict[tuple[int, ...], int] = {initial_remaining: 0}
     explored = 1
 
+    # Keep completed states in the DP: zero-charge transitions carry them through
+    # later slots so a cheaper future intensity can still determine the optimum.
     for slot_index in range(scenario.intervals):
         start = slot_start_times[slot_index]
         end = slot_start_times[slot_index + 1]
@@ -98,18 +100,16 @@ def check_discrete_reference(
         if explored > _MAX_EXPLORED_STATES:
             raise ValueError("reference checker exceeded its 10,000-state execution bound")
         states = next_states
-        complete_proxies = [cost for remaining, cost in states.items() if not any(remaining)]
-        if complete_proxies:
-            return DiscreteReferenceResult(
-                grid_feasible=True,
-                minimum_grid_carbon_proxy=min(complete_proxies),
-                proxy_unit=scenario.carbon_intensity_profile[0].intensity_unit.removesuffix("/kWh"),
-                explored_state_count=explored,
-            )
 
+    complete_proxies = [
+        proxy
+        for remaining, proxy in states.items()
+        if not any(remaining)
+    ]
+    grid_feasible = bool(complete_proxies)
     return DiscreteReferenceResult(
-        grid_feasible=False,
-        minimum_grid_carbon_proxy=None,
+        grid_feasible=grid_feasible,
+        minimum_grid_carbon_proxy=(min(complete_proxies) if grid_feasible else None),
         proxy_unit=scenario.carbon_intensity_profile[0].intensity_unit.removesuffix("/kWh"),
         explored_state_count=explored,
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,41 @@ EXPECTED_CATEGORIES = {
     "zero_carbon_intensity",
     "repeated_carbon_values",
 }
+
+
+def _single_vehicle_reference_scenario(intensity_values: list[float]):
+    base = next(
+        row.scenario
+        for row in load_evaluation_suite().scenarios
+        if row.scenario_id == "flexible-single-vehicle"
+    )
+    end_at = base.start_at + timedelta(hours=len(intensity_values))
+    vehicle = base.vehicles[0].model_copy(
+        update={
+            "availability_start": base.start_at,
+            "availability_end": end_at,
+            "required_energy_kwh": 1.0,
+            "charging_power_kw": 1.0,
+        }
+    )
+    profile = [
+        base.carbon_intensity_profile[0].model_copy(
+            update={
+                "interval_start": base.start_at + timedelta(hours=index),
+                "interval_end": base.start_at + timedelta(hours=index + 1),
+                "intensity_value": intensity,
+            }
+        )
+        for index, intensity in enumerate(intensity_values)
+    ]
+    return base.model_copy(
+        update={
+            "intervals": len(intensity_values),
+            "depot_power_kw": 1.0,
+            "vehicles": [vehicle],
+            "carbon_intensity_profile": profile,
+        }
+    )
 
 
 def _results_by_id(result):
@@ -327,6 +363,35 @@ def test_discrete_reference_can_find_grid_schedule_when_heuristics_do_not() -> N
     assert reference.grid_feasible is True
     assert evaluated.scenario_feasibility == "feasibility_not_proven"
     assert all(strategy.complete is False for strategy in evaluated.strategies)
+
+
+def test_discrete_reference_returns_cheaper_later_slot_for_exact_counterexample() -> None:
+    scenario = _single_vehicle_reference_scenario([400.0, 100.0])
+
+    result = check_discrete_reference(scenario)
+
+    assert result.grid_feasible is True
+    assert result.minimum_grid_carbon_proxy == 100
+    assert result.proxy_unit == "gCO2"
+
+
+def test_discrete_reference_does_not_stop_at_first_early_completion() -> None:
+    scenario = _single_vehicle_reference_scenario([500.0, 200.0, 75.0])
+
+    result = check_discrete_reference(scenario)
+
+    assert result.grid_feasible is True
+    assert result.minimum_grid_carbon_proxy == 75
+
+
+def test_discrete_reference_returns_deterministic_optimum() -> None:
+    scenario = _single_vehicle_reference_scenario([400.0, 100.0])
+
+    first = check_discrete_reference(scenario)
+    second = check_discrete_reference(scenario)
+
+    assert first == second
+    assert first.minimum_grid_carbon_proxy == 100
 
 
 def test_discrete_reference_checker_rejects_out_of_scope_instances() -> None:
