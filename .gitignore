@@ -34,9 +34,15 @@ htmlcov/
 # Logs
 *.log
 
-# Node (frontend — placeholder)
+# Node and frontend tooling
 node_modules/
 dist/
+
+# Frontend-generated OpenAPI and test artifacts
+frontend/openapi.json
+frontend/test-results/
+frontend/playwright-report/
+frontend/coverage/
 
 # Docker
 .docker/

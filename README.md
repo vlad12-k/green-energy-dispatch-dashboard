@@ -1,6 +1,6 @@
 # Green Energy Dispatch Dashboard
 
-A UK grid-aware energy operations platform in active development. The current slice integrates the NESO Carbon Intensity API read-only, validates regional readings and freshness, preserves source/interval provenance, and evaluates an illustrative simulated dispatch policy.
+A UK grid-aware energy operations platform in active development. The current application includes the read-only NESO Carbon Intensity adapter, a deterministic synthetic EV-depot scheduling simulation, scenario evaluation tools, and a local React operator dashboard. The dashboard sends validated synthetic scenarios to FastAPI and displays results from the existing Python scheduler; it does not control physical assets or make market decisions.
 
 > **Safety boundary:** no market, balancing mechanism, or physical device is connected. The service never places trades or issues control commands. Carbon thresholds are illustrative only and not operational guidance.
 
@@ -9,12 +9,14 @@ A UK grid-aware energy operations platform in active development. The current sl
 - `GET /health` — single service health endpoint.
 - `GET /api/v1/energy/carbon-intensity` — live NESO regional intensity reading; returns actual when available, otherwise explicitly marks forecast. Stale, malformed, or unavailable upstream data fails closed with HTTP 503; no fabricated fallback is used.
 - `POST /api/v1/energy/carbon-gate` — transparent simulated `allow`, `defer`, or `block` recommendation based on an explicitly illustrative policy.
+- `POST /api/v1/simulations/ev-depot/evaluate` — stateless, synthetic-only evaluation through the existing baseline and carbon-aware Python scheduler; no database or upstream data calls.
+- React/TypeScript operator dashboard — local scenario editing, JSON import/export, real API evaluation, accessible schedule/load/intensity charts, validation feedback, and equal-service proxy explanations.
 - Pydantic validation rejects negative, non-finite, malformed, and unexpected request fields.
 - Production defaults disable debug mode and interactive OpenAPI docs.
 
 ## Architecture and roadmap
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for system boundaries, current implementation status, data provenance, security assumptions, and staged product roadmap. See [`docs/SECURITY.md`](docs/SECURITY.md) for container scan evidence and policy. Optional PostgreSQL storage of NESO source evidence and normalised observations, one-shot ingestion, offline replay, an opt-in standalone regional collector, historical dataset export, and simple chronological forecast baselines are implemented. Follow [`docs/DATABASE_AND_REPLAY.md`](docs/DATABASE_AND_REPLAY.md) for database setup and [`docs/NESO_HISTORICAL_ACQUISITION.md`](docs/NESO_HISTORICAL_ACQUISITION.md) for the official regional forecast archive contract and controlled acquisition workflow. Energy optimisation, React UI, and production hosting are not implemented.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for system boundaries, current implementation status, data provenance, security assumptions, and staged product roadmap. See [`docs/SECURITY.md`](docs/SECURITY.md) for container scan evidence and policy. Optional PostgreSQL storage of NESO source evidence and normalised observations, one-shot ingestion, offline replay, an opt-in standalone regional collector, historical dataset export, and simple chronological forecast baselines are implemented. Follow [`docs/DATABASE_AND_REPLAY.md`](docs/DATABASE_AND_REPLAY.md) for database setup and [`docs/NESO_HISTORICAL_ACQUISITION.md`](docs/NESO_HISTORICAL_ACQUISITION.md) for the official regional forecast archive contract and controlled acquisition workflow. The synthetic scheduling/evaluation workflow and local React operator dashboard are implemented; cloud hosting, live asset control, electricity-market participation, and production operations are not.
 
 ## Quick start
 
@@ -29,6 +31,40 @@ python -m uvicorn app.main:app
 ```
 
 Defaults are production-safe (`APP_ENV=production`, `DEBUG=false`); `/docs`, `/redoc`, and `/openapi.json` are disabled. For trusted local development only, set `APP_ENV=development` and `DEBUG=true` in `.env`.
+
+## Local operator dashboard
+
+Requirements: Python 3.12 or newer and Node.js 22.12 or newer with npm. No database, cloud account, NESO access, or credentials are needed for the synthetic dashboard.
+
+Start the API from the repository root:
+
+```bash
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+In a second terminal, install the locked frontend dependencies and start Vite:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Open <http://127.0.0.1:5173>. Vite proxies `/api` and `/health` to `http://127.0.0.1:8000`; browser requests remain same-origin, so the API does not enable permissive CORS. Load the synthetic example, edit the vehicle energy requirement and carbon profile, run the simulation, inspect both returned schedules and export the scenario JSON. The dashboard does not call the NESO endpoint. See [`docs/OPERATOR_DASHBOARD.md`](docs/OPERATOR_DASHBOARD.md) for the operator guide, result interpretation, API contract, and implemented/future boundaries.
+
+The API base is same-origin by default (`VITE_API_BASE_URL` is empty). Only set it to a same-origin API prefix when changing the local proxy configuration; cross-origin access is intentionally not enabled.
+
+Frontend checks, build, and real FastAPI/browser integration test:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e
+```
+
+The production build regenerates TypeScript API types from FastAPI OpenAPI and writes static assets to `frontend/dist`. The API remains independently runnable; this milestone does not configure production hosting or serve the built frontend from FastAPI.
 
 Fetch the configured GB region (default NESO region ID 13):
 

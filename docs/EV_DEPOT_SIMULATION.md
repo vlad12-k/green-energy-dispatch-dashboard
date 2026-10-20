@@ -71,6 +71,6 @@ python -m pytest -q app/tests/test_ev_depot.py app/tests/test_carbon_aware_sched
 python -m app.simulate_carbon_aware_ev_depot examples/carbon_aware_ev_depot_demo.json
 ```
 
-Implemented: bounded synthetic profile validation, service-first EDF scheduling, bounded lower-intensity shifts, per-strategy feasibility and proxy reporting, deterministic JSON output, and the local CLI example.
+Implemented: bounded synthetic profile validation, service-first EDF scheduling, bounded lower-intensity shifts, per-strategy feasibility and proxy reporting, deterministic JSON output, the local CLI example, and the stateless FastAPI simulation endpoint used by the operator dashboard.
 
-Not implemented: external source ingestion or point-in-time verification, global optimization or infeasibility proofs, an API endpoint, hardware control, market trading, or operational deployment. Those remain separate future work requiring their own requirements and safety review.
+Not implemented: external source ingestion or point-in-time verification, global optimisation or general infeasibility proofs, hardware control, market trading, or operational deployment. Supporting external data or actuation remains separate future work requiring its own requirements and safety review.
