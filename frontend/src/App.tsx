@@ -4,6 +4,7 @@ import { SimulationApiError, evaluateScenario } from './api/client';
 import { ResultsPanel } from './components/ResultsPanel';
 import { ScenarioEditor } from './components/ScenarioEditor';
 import { createDemoScenario, scenarioSignature } from './data/scenario';
+import { formatValue } from './utils/number-format';
 
 interface EvaluationSnapshot {
   revision: number;
@@ -11,10 +12,6 @@ interface EvaluationSnapshot {
 }
 
 type EvaluationStatus = 'edited' | 'running' | 'complete' | 'error';
-
-function formatEnergy(value: number): string {
-  return new Intl.NumberFormat('en-GB', { maximumFractionDigits: 2 }).format(value);
-}
 
 function getRequiredEnergy(scenario: Scenario): number {
   return scenario.vehicles.reduce((total, vehicle) => total + vehicle.required_energy_kwh, 0);
@@ -186,9 +183,9 @@ export default function App() {
         <section className="overview-grid" aria-label="Current scenario overview">
           <article className="overview-card overview-scenario"><span className="overview-label">SCENARIO</span><strong title={scenario.scenario_id}>{scenario.scenario_id || 'Unnamed scenario'}</strong><span className="overview-foot"><i className="synthetic-dot" /> synthetic_scenario · simulation-only</span></article>
           <article className="overview-card"><span className="overview-label">FLEET SIZE</span><strong>{scenario.vehicles.length}<small> vehicles</small></strong><span className="overview-foot">Availability windows defined per vehicle</span></article>
-          <article className="overview-card"><span className="overview-label">REQUIRED ENERGY</span><strong>{formatEnergy(requiredEnergy)}<small> kWh</small></strong><span className="overview-foot">{result ? `Baseline delivered ${formatEnergy(Object.values(result.baseline_delivered_energy_kwh).reduce((a, b) => a + b, 0))} kWh` : 'Awaiting simulation response'}</span></article>
-          <article className="overview-card"><span className="overview-label">DEPOT CAPACITY</span><strong>{formatEnergy(scenario.depot_power_kw)}<small> kW</small></strong><span className="overview-foot">Configured aggregate power limit</span></article>
-          <article className="overview-card"><span className="overview-label">PEAK SCHEDULED LOAD</span><strong>{result ? `${formatEnergy(Math.max(result.baseline_peak_depot_power_kw, result.carbon_aware.peak_depot_power_kw))}` : '—'}<small>{result ? ' kW' : ' not evaluated'}</small></strong><span className="overview-foot">Highest reported segment peak across schedules</span></article>
+          <article className="overview-card"><span className="overview-label">REQUIRED ENERGY</span><strong>{formatValue(requiredEnergy)}<small> kWh</small></strong><span className="overview-foot">{result ? `Baseline delivered ${formatValue(Object.values(result.baseline_delivered_energy_kwh).reduce((a, b) => a + b, 0))} kWh` : 'Awaiting simulation response'}</span></article>
+          <article className="overview-card"><span className="overview-label">DEPOT CAPACITY</span><strong>{formatValue(scenario.depot_power_kw)}<small> kW</small></strong><span className="overview-foot">Configured aggregate power limit</span></article>
+          <article className="overview-card"><span className="overview-label">PEAK SCHEDULED LOAD</span><strong>{result ? `${formatValue(Math.max(result.baseline_peak_depot_power_kw, result.carbon_aware.peak_depot_power_kw))}` : '—'}<small>{result ? ' kW' : ' not evaluated'}</small></strong><span className="overview-foot">Highest reported segment peak across schedules</span></article>
         </section>
 
         <div className={`run-status run-status-${status}`} role="status" aria-live="polite" aria-atomic="true">

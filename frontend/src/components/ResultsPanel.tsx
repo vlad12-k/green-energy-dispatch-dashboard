@@ -1,9 +1,6 @@
 import type { CarbonAwareSchedule, Scenario, SimulationResult } from '../api/client';
 import { CarbonProfileChart, DepotLoadChart, ScheduleChart } from './Charts';
-
-function number(value: number, digits = 2): string {
-  return new Intl.NumberFormat('en-GB', { maximumFractionDigits: digits }).format(value);
-}
+import { formatValue } from '../utils/number-format';
 
 function StatusBadge({ complete }: { complete: boolean }) {
   return complete
@@ -72,9 +69,9 @@ function ScheduleCard({
       </header>
       {!complete && <p className="caveat-note">This heuristic did not demonstrate complete service. That does not prove that no feasible schedule exists.</p>}
       <div className="schedule-metrics">
-        <div><span>Delivered energy</span><strong>{number(deliveredTotal)} <small>kWh</small></strong></div>
-        <div><span>Unmet energy</span><strong className={unmetTotal > 0 ? 'metric-warning' : ''}>{number(unmetTotal)} <small>kWh</small></strong></div>
-        <div><span>Peak depot power</span><strong>{number(peakPower)} <small>kW</small></strong></div>
+        <div><span>Delivered energy</span><strong>{formatValue(deliveredTotal)} <small>kWh</small></strong></div>
+        <div><span>Unmet energy</span><strong className={unmetTotal > 0 ? 'metric-warning' : ''}>{formatValue(unmetTotal)} <small>kWh</small></strong></div>
+        <div><span>Peak depot power</span><strong>{formatValue(peakPower)} <small>kW</small></strong></div>
       </div>
       <ScheduleChart schedule={{ allocations } as CarbonAwareSchedule} scenario={scenario} label={title} />
       <DepotLoadChart rows={aggregateLoad} depotPowerKw={scenario.depot_power_kw} label={title} />
@@ -87,7 +84,7 @@ function ScheduleCard({
             <tbody>{scenario.vehicles.map((vehicle) => {
               const vehicleUnmet = unmet[vehicle.vehicle_id] ?? 0;
               const vehicleComplete = vehicleUnmet === 0;
-              return <tr key={vehicle.vehicle_id}><td>{vehicle.vehicle_id}</td><td>{number(vehicle.required_energy_kwh, 4)}</td><td>{number(delivered[vehicle.vehicle_id] ?? 0, 4)}</td><td>{number(vehicleUnmet, 4)}</td><td><span className={vehicleComplete ? 'table-status-ok' : 'table-status-warn'}>{vehicleComplete ? 'Complete' : 'Incomplete'}</span></td></tr>;
+              return <tr key={vehicle.vehicle_id}><td>{vehicle.vehicle_id}</td><td>{formatValue(vehicle.required_energy_kwh)}</td><td>{formatValue(delivered[vehicle.vehicle_id] ?? 0)}</td><td>{formatValue(vehicleUnmet)}</td><td><span className={vehicleComplete ? 'table-status-ok' : 'table-status-warn'}>{vehicleComplete ? 'Complete' : 'Incomplete'}</span></td></tr>;
             })}</tbody>
           </table>
         </div>
@@ -101,7 +98,7 @@ export function ResultsPanel({ result, scenario }: { result: SimulationResult; s
   const carbonComplete = result.carbon_aware_feasible;
   const difference = result.absolute_carbon_proxy_reduction;
   const diffClass = difference === null ? '' : difference > 0 ? 'positive-difference' : difference < 0 ? 'negative-difference' : 'zero-difference';
-  const signedDifference = difference === null ? null : `${difference > 0 ? '+' : ''}${number(difference)}`;
+  const signedDifference = difference === null ? null : `${difference > 0 ? '+' : ''}${formatValue(difference)}`;
 
   return (
     <section className="results-section" aria-labelledby="results-heading">
@@ -112,9 +109,9 @@ export function ResultsPanel({ result, scenario }: { result: SimulationResult; s
 
       <div className="comparison-strip panel">
         <div className="comparison-intro"><span className="eyebrow">EQUAL-SERVICE COMPARISON</span><strong>{result.comparison_eligible ? 'Eligible' : 'Unavailable'}</strong><p>{result.comparison_eligible ? 'Both strategies meet the full vehicle energy requirements.' : result.comparison_unavailable_reason}</p></div>
-        <div className="proxy-value"><span>Baseline proxy</span><strong>{number(result.baseline_carbon_proxy)} <small>{result.carbon_proxy_unit}</small></strong></div>
-        <div className="proxy-value"><span>Carbon-aware proxy</span><strong>{number(result.carbon_aware_carbon_proxy)} <small>{result.carbon_proxy_unit}</small></strong></div>
-        <div className={`proxy-value difference-value ${diffClass}`}><span>Difference <small>(baseline − carbon-aware)</small></span><strong>{signedDifference ?? '—'} <small>{result.comparison_eligible ? result.carbon_proxy_unit : ''}</small></strong><span className="percentage-value">{result.percentage_carbon_proxy_reduction === null ? result.percentage_difference_unavailable_reason ?? 'Not comparable' : `${result.percentage_carbon_proxy_reduction > 0 ? '+' : ''}${number(result.percentage_carbon_proxy_reduction)}%`}</span></div>
+        <div className="proxy-value"><span>Baseline proxy</span><strong>{formatValue(result.baseline_carbon_proxy)} <small>{result.carbon_proxy_unit}</small></strong></div>
+        <div className="proxy-value"><span>Carbon-aware proxy</span><strong>{formatValue(result.carbon_aware_carbon_proxy)} <small>{result.carbon_proxy_unit}</small></strong></div>
+        <div className={`proxy-value difference-value ${diffClass}`}><span>Difference <small>(baseline − carbon-aware)</small></span><strong>{signedDifference ?? '—'} <small>{result.comparison_eligible ? result.carbon_proxy_unit : ''}</small></strong><span className="percentage-value">{result.percentage_carbon_proxy_reduction === null ? result.percentage_difference_unavailable_reason ?? 'Not comparable' : `${result.percentage_carbon_proxy_reduction > 0 ? '+' : ''}${formatValue(result.percentage_carbon_proxy_reduction)}%`}</span></div>
       </div>
       <p className="proxy-disclaimer">Synthetic carbon-intensity-weighted energy proxy only; not measured emissions, a forecast, or a real-world savings claim. A failed heuristic is not proof of infeasibility.</p>
 

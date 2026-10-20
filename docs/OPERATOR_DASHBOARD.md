@@ -47,6 +47,8 @@ After any edit, prior results are hidden until that exact input version has been
 - Per-strategy proxies retain the input unit (`gCO2` or `gCO2e`). The signed comparison is **baseline proxy − carbon-aware proxy**: positive, zero, and negative values are all retained.
 - A comparison is eligible only if both schedules fulfil the same complete vehicle energy requirements. When it is not eligible, the reason is shown; a lower proxy from reduced delivery is never described as a benefit.
 - Constraints and status use text as well as colour. Expand the data tables for numerical alternatives to the charts.
+- Energy, power, and proxy values use up to six decimal places; very small or very large values use scientific notation, and true zero remains `0`. A non-zero shortfall is therefore not rounded into an exact zero.
+- Schedule charts choose a responsive set of at most five UTC time ticks. Their focusable, scrollable viewport keeps large fleets manageable; accessible interval tables retain every interval's UTC bounds, and allocation tables retain every returned segment and its timestamps.
 
 ## API contract and OpenAPI types
 
