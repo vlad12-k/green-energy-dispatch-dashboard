@@ -2,7 +2,7 @@
 
 ## Product boundary
 
-Green Energy Dispatch is an **intelligent energy operations platform** under staged development. The delivered slice reads NESO Carbon Intensity data and evaluates a simulated, explainable dispatch policy. It is not connected to an electricity market, balancing mechanism, or physical asset; it never places trades or issues control commands.
+Green Energy Dispatch is an **intelligent energy operations platform** under staged development. The delivered software includes a read-only NESO Carbon Intensity adapter, existing deterministic EV-depot scheduling strategies, a synthetic scenario evaluator, and a local operator dashboard that submits scenarios to FastAPI and displays Python-computed results. It is not connected to an electricity market, balancing mechanism, or physical asset; it never places trades or issues control commands. Synthetic scenario values are not live observations or verified emissions outcomes.
 
 ## System context
 
@@ -13,7 +13,14 @@ API (HTTPS, read-only)   └── standalone opt-in collector ──> existing 
                                                                │
                                optional PostgreSQL evidence store ◄┘
 
-Future: forecast evaluation → energy optimisation → operator dashboard → production operations
+React + TypeScript operator UI (local Vite dev server)
+        │ same-origin /api proxy
+        ▼
+FastAPI simulation endpoint ──> existing Python EV-depot scheduler
+        │                              │
+        └──── validated result ◄───────┘
+
+Future: live asset integration, production hosting and operations (separate review)
 ```
 
 ## Implemented now
@@ -26,8 +33,11 @@ Future: forecast evaluation → energy optimisation → operator dashboard → p
 | PostgreSQL evidence store | Immutable raw NESO JSON evidence, SHA-256, normalised observations, explicit Alembic migrations, one-shot ingestion and offline replay | Implemented as optional foundation |
 | NESO collector | Standalone opt-in regional polling, bounded retries, durable run/attempt status, gap reporting, JSON logs and graceful stop | Implemented for local demonstration; not a production scheduler |
 | Historical datasets and baselines | Deterministic regional CSV/manifest export; chronological persistence and seasonal-naive evaluation with as-of-time checks | Framework implemented; no genuine historical evaluation is currently possible from the inspected project database |
-| Energy optimisation | Schedule flexible loads subject to constraints and objectives | Not implemented |
-| React operator UI | Show live signal age, source, forecast/actual distinction, and recommendation | Not implemented |
+| EV-depot scheduler | Existing immediate baseline and carbon-aware bounded heuristic | Implemented; synthetic advisory simulation only, no global-optimality claim |
+| Scenario evaluation | Deterministic synthetic scenarios and bounded robustness evaluation | Implemented |
+| Simulation API | `POST /api/v1/simulations/ev-depot/evaluate`, stateless and validated | Implemented; invokes the existing Python scheduler |
+| React operator dashboard | Scenario editor, local JSON import/export, API-backed comparisons and accessible visualisations | Implemented for local demonstration |
+| Live asset control / electricity trading | Physical dispatch or market interaction | Not implemented |
 | Production hosting | Deployment, SLOs, alerting, backups, runbooks | Not implemented |
 
 ## Scheduled data operations
@@ -48,7 +58,7 @@ The evaluation CLI uses a chronological fraction split or an explicit timezone-a
 
 Use `python -m app.build_historical_dataset --region-id 13 --output artifacts/region-13.csv` to create the CSV and JSON manifest, and `python -m app.evaluate_historical_baselines --region-id 13 --train-fraction 0.8 --horizons 1,2,4,48` to evaluate if the stored actuals support it. Both commands require `DATABASE_URL` for a database already migrated to the current schema. The inspected local database was not migrated past `0001`, so these commands require upgrading it before use. Integration tests use disposable PostgreSQL schemas with real Alembic migrations and labelled fixtures; they do not call the live NESO API.
 
-The official NESO Regional Carbon Intensity Forecast archive is forecast-only: its rows have target timestamps but no original forecast issue time, and the inspected London API historical response also contained forecasts rather than regional actuals. A bounded, read-only-by-default DataStore acquisition command is available; `--persist` explicitly stores source evidence and forecast rows using the existing schema. These retrospectively acquired forecasts are not valid historical as-of inputs, and the archive cannot supply actual targets for genuine regional forecast evaluation. Source evidence, licence attribution, coverage observations and commands are documented in [`NESO_HISTORICAL_ACQUISITION.md`](NESO_HISTORICAL_ACQUISITION.md). The active session had no configured `DATABASE_URL`, so current user-database migration state was not inspected or modified.
+The official NESO Regional Carbon Intensity Forecast archive is forecast-only: its rows have target timestamps but no original forecast issue time, and the inspected London API historical response also contained forecasts rather than regional actuals. A bounded, read-only-by-default DataStore acquisition command is available; `--persist` explicitly stores source evidence and forecast rows using the existing schema. These retrospectively acquired forecasts are not valid historical as-of inputs, and the archive cannot supply actual targets for genuine regional forecast evaluation. Source evidence, licence attribution, coverage observations and commands are documented in [`NESO_HISTORICAL_ACQUISITION.md`](NESO_HISTORICAL_ACQUISITION.md). No user-managed database is needed by the operator dashboard. The dashboard milestone's full integration suite was run against a temporary, volume-less local PostgreSQL service that was stopped and removed after verification; no existing or user-managed database was modified.
 
 ## Data contract and provenance
 
@@ -94,14 +104,18 @@ Establish historical, leakage-safe baselines and operating metrics before compar
 ### Separate recommendation from execution
 The platform can explain a recommendation without having authority to perform a physical or financial action. This boundary remains explicit in APIs and UI.
 
+### Local React client with same-origin development proxy
+The operator dashboard is a focused React/TypeScript application built by Vite. In local development, Vite proxies `/api` to the loopback FastAPI server, avoiding cross-origin browser requests and any need for permissive CORS. The backend remains independently runnable, and the static frontend is not implicitly served by FastAPI. The OpenAPI document is generated from the running application model for strict TypeScript contracts. See [ADR-001](decisions/ADR-001-react-vite-operator-dashboard.md) for alternatives and trade-offs.
+
 ## Staged product roadmap
 
 1. **Data foundation (implemented):** optional PostgreSQL storage of raw payloads and normalised observations with source hash, retrieval time, interval, freshness result, schema version, explicit migrations, one-shot idempotent ingestion, and offline deterministic replay.
 2. **Data operations (local collector implemented):** opt-in scheduled polling, bounded retry/backoff, 429 handling, per-attempt status, freshness and interval-gap reporting, and graceful shutdown. Production-grade scheduling, backfill, alerting, retention, and backup/restore remain planned.
 3. **Forecasting (partially implemented):** a provenance-aware dataset and chronological persistence/seasonal-naive evaluation framework are available; meaningful real-data evaluation, further error/calibration evidence, model cards and monitored inference remain future work. Add neural models only when measured baselines justify them.
-4. **Energy optimisation:** define a real load/asset-flexibility simulation, constraints and objective; run scenario/backtest evaluation and record explainable decisions. No live actuation.
-5. **React dashboard:** current and historical regional signals, clear actual/forecast/stale labels, provenance, policy settings and scenario replay; accessible responsive design.
-6. **Production readiness:** hardened container, SBOM, pinned/updated dependencies, CI gates, staging, IaC, secret handling, SLOs, alerts, runbooks, and security review.
+4. **EV-depot simulation (implemented):** reuse the existing baseline and bounded carbon-aware heuristic for explicitly synthetic, price-free scenarios; the heuristic is not a global optimizer and failure is not an infeasibility proof.
+5. **Operator dashboard (implemented for local demonstration):** React/TypeScript edits synthetic inputs, calls the versioned FastAPI simulation endpoint, and visualises validated Python results. NESO data is deliberately not connected to this scheduler.
+6. **Future product work:** any time-valid external-source adapter, live asset integration, or operational recommendation requires separate requirements, provenance, safety, security, and review.
+7. **Production readiness:** deployment, SLOs, alerting, backups, runbooks, IaC, and production security review remain future work.
 
 ## Acceptance evidence
 

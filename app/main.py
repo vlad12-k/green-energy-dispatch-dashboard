@@ -4,6 +4,7 @@ from fastapi import FastAPI
 import uvicorn
 
 from app.api.v1.energy import router as energy_router
+from app.api.v1.simulations import router as simulations_router
 from app.core.config import settings
 from app.core.logging import setup_logging
 
@@ -24,6 +25,7 @@ app = FastAPI(
     openapi_url="/openapi.json" if settings.debug else None,
 )
 app.include_router(energy_router, prefix="/api/v1")
+app.include_router(simulations_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["system"])

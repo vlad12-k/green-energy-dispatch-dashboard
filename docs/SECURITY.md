@@ -33,6 +33,17 @@ The built image was run as UID/GID 10001. Its `/health` endpoint returned HTTP 2
 
 The final Alpine scan found no vulnerability findings at any severity in OS or Python packages. This is scan evidence for the tested images and database snapshot, not a guarantee that the images have no vulnerabilities or that future database updates will remain clean. Rebuild and rescan images regularly; retain both CI Trivy steps and review new findings rather than suppressing them. Both ARM64 and `linux/amd64` builds were checked locally; CI provides the repository's independent build and security gate.
 
+## Operator dashboard prototype
+
+The React/Vite dashboard is a local-development client, not a production security boundary.
+
+- Vite binds to `127.0.0.1` and proxies `/api` and `/health` to `127.0.0.1:8000`. FastAPI has no permissive CORS policy added for this feature. Cross-origin deployment is unsupported; do not add wildcard origins.
+- The API simulation endpoint is stateless, synthetic-only and bounded to 96 intervals and 50 vehicles. It does not call NESO, read/write PostgreSQL, or start background work.
+- There is no user authentication or authorisation system. Keep both development servers on loopback and do not expose them to untrusted networks.
+- The browser imports only user-selected JSON files (bounded to 256 KiB in the UI) and exports scenario inputs as a local download. It does not persist scenarios or transmit them to external services.
+- Server validation details are mapped to form fields; non-validation server failures are displayed generically rather than exposing exception text.
+- npm dependencies are pinned by the frontend lockfile. CI runs `npm audit`; update dependencies deliberately and review lockfile changes. The production build is not deployed or served by FastAPI in this milestone.
+
 ## Other checks
 
 The existing CI also runs `pip-audit` against declared runtime and development dependencies and Gitleaks against repository history and the working tree. Results are per-run evidence and should not be inferred from this local container scan.
