@@ -1,8 +1,13 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { ResultsPanel } from './ResultsPanel';
+import { ResultsDetailsPanel, ResultsPanel } from './ResultsPanel';
+import type { Scenario, SimulationResult } from '../api/client';
 import { createDemoScenario } from '../data/scenario';
 import { incompleteSimulationResult, simulationResult } from '../test/fixtures';
+
+function resultsView(result: SimulationResult, scenario: Scenario) {
+  return <><ResultsPanel result={result} scenario={scenario} /><ResultsDetailsPanel result={result} scenario={scenario} /></>;
+}
 
 function metricText(container: HTMLElement, metricIndex: number): string[] {
   return Array.from(container.querySelectorAll(`.schedule-metrics div:nth-child(${metricIndex}) strong`))
@@ -30,7 +35,7 @@ describe('ResultsPanel numerical precision', () => {
       'van-1': { required_energy_kwh: largeRequest, delivered_energy_kwh: delivered, unmet_energy_kwh: 0.0005 },
     };
 
-    const { container } = render(<ResultsPanel result={result} scenario={scenario} />);
+    const { container } = render(resultsView(result, scenario));
 
     expect(metricText(container, 2)).toEqual(['0.0005 kWh', '0.0005 kWh']);
     expect(screen.getAllByText('Complete schedule not demonstrated')).toHaveLength(2);
@@ -67,7 +72,7 @@ describe('ResultsPanel numerical precision', () => {
       charging_power_kw: delivered,
     }));
 
-    const { container } = render(<ResultsPanel result={result} scenario={scenario} />);
+    const { container } = render(resultsView(result, scenario));
 
     expect(metricText(container, 1)).toEqual(['1E-12 kWh', '1E-12 kWh']);
     expect(metricText(container, 2)).toEqual(['9.99E-10 kWh', '9.99E-10 kWh']);
@@ -79,26 +84,26 @@ describe('ResultsPanel numerical precision', () => {
   it('preserves small positive, negative and true-zero proxy differences', () => {
     const scenario = createDemoScenario();
     const result = simulationResult();
-    const { container, rerender } = render(<ResultsPanel result={result} scenario={scenario} />);
+    const { container, rerender } = render(resultsView(result, scenario));
     const difference = container.querySelector('.difference-value strong');
 
     result.absolute_carbon_proxy_reduction = 0.0005;
     result.baseline_carbon_proxy = 1.0005;
     result.carbon_aware_carbon_proxy = 1;
-    rerender(<ResultsPanel result={result} scenario={scenario} />);
+    rerender(resultsView(result, scenario));
     expect(difference).toHaveTextContent('+0.0005 gCO2');
 
     result.absolute_carbon_proxy_reduction = -0.0005;
     result.baseline_carbon_proxy = 1;
     result.carbon_aware_carbon_proxy = 1.0005;
-    rerender(<ResultsPanel result={result} scenario={scenario} />);
+    rerender(resultsView(result, scenario));
     expect(difference).toHaveTextContent('-0.0005 gCO2');
 
     result.absolute_carbon_proxy_reduction = 0;
     result.baseline_carbon_proxy = 1;
     result.carbon_aware_carbon_proxy = 1;
     result.percentage_carbon_proxy_reduction = 0;
-    rerender(<ResultsPanel result={result} scenario={scenario} />);
+    rerender(resultsView(result, scenario));
     expect(difference).toHaveTextContent('0 gCO2');
     expect(container.querySelector('.percentage-value')).toHaveTextContent('0%');
   });

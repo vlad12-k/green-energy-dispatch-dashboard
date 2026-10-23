@@ -8,7 +8,7 @@ import type {
 
 import { formatValue } from '../utils/number-format';
 
-const VEHICLE_COLOURS = ['#76d9bb', '#f2c673', '#87aaf2', '#dc91bd', '#e88f75', '#b4a0eb'];
+const VEHICLE_COLOURS = ['#DCF36B', '#6FD7C9', '#8FB5FF', '#B39AF7', '#FF9A83', '#F2BD77'];
 const PLOT_WIDTH = 840;
 
 function epoch(value: string): number {
@@ -17,12 +17,8 @@ function epoch(value: string): number {
 
 export function CarbonProfileChart({ profile }: { profile: CarbonIntensityInterval[] }) {
   const maximum = Math.max(1, ...profile.map((row) => row.intensity_value));
-  const points = profile.map((row, index) => {
-    const x = ((index + 0.5) / profile.length) * PLOT_WIDTH;
-    const y = 92 - (row.intensity_value / maximum) * 70;
-    return `${x},${y}`;
-  });
-  const path = points.length > 0 ? `M ${points.join(' L ')}` : '';
+  const slotWidth = PLOT_WIDTH / Math.max(profile.length, 1);
+  const barWidth = Math.max(1, slotWidth * 0.68);
   const unit = profile[0]?.intensity_unit ?? 'gCO2/kWh';
 
   return (
@@ -39,11 +35,11 @@ export function CarbonProfileChart({ profile }: { profile: CarbonIntensityInterv
             <title>Carbon intensity by scenario interval</title>
             <line x1="0" y1="94" x2="840" y2="94" className="chart-axis" />
             <line x1="0" y1="22" x2="840" y2="22" className="chart-gridline" />
-            <path d={path} className="intensity-line" />
             {profile.map((row, index) => {
-              const x = ((index + 0.5) / profile.length) * PLOT_WIDTH;
-              const y = 92 - (row.intensity_value / maximum) * 70;
-              return <circle key={`${row.interval_start}-${index}`} cx={x} cy={y} r="3.5" className="intensity-dot"><title>{`Interval ${index + 1}: ${formatValue(row.intensity_value)} ${unit}`}</title></circle>;
+              const height = (row.intensity_value / maximum) * 70;
+              const x = index * slotWidth + (slotWidth - barWidth) / 2;
+              const y = 92 - height;
+              return <rect key={`${row.interval_start}-${index}`} className="carbon-interval-bar" data-interval-bar={index} x={x} y={y} width={barWidth} height={height} rx={Math.min(4, barWidth / 4)}><title>{`Interval ${index + 1}, ${row.interval_start} to ${row.interval_end}: ${formatValue(row.intensity_value)} ${unit}`}</title></rect>;
             })}
             <text x="4" y="15" className="chart-label">{formatValue(maximum)} max</text>
             <text x="4" y="113" className="chart-label">{profile[0]?.interval_start.slice(11, 16)} UTC</text>
@@ -193,14 +189,10 @@ export function DepotLoadChart({ rows, depotPowerKw, label }: {
   depotPowerKw: number;
   label: string;
 }) {
-  const maximum = Math.max(depotPowerKw, 1, ...rows.map((row) => row.peak_power_kw));
+  const maximum = Math.max(depotPowerKw, 1, ...rows.map((row) => Math.max(row.average_power_kw, row.peak_power_kw)));
   const yFor = (power: number) => 94 - (power / maximum) * 70;
-  const series = (key: 'average_power_kw' | 'peak_power_kw') => rows.map((row, index) => {
-    const x = ((index + 0.5) / Math.max(rows.length, 1)) * PLOT_WIDTH;
-    return `${x},${yFor(row[key])}`;
-  });
-  const averagePath = series('average_power_kw');
-  const peakPath = series('peak_power_kw');
+  const slotWidth = PLOT_WIDTH / Math.max(rows.length, 1);
+  const barWidth = Math.max(1, slotWidth * 0.58);
   const capY = yFor(depotPowerKw);
 
   return (
@@ -211,8 +203,21 @@ export function DepotLoadChart({ rows, depotPowerKw, label }: {
           <title>{label} aggregate depot load; average and peak are distinct</title>
           <line x1="0" y1={capY} x2="840" y2={capY} className="capacity-line" />
           <line x1="0" y1="94" x2="840" y2="94" className="chart-axis" />
-          <polyline points={peakPath.join(' ')} className="load-peak-line" />
-          <polyline points={averagePath.join(' ')} className="load-average-line" />
+          {rows.map((row, index) => {
+            const x = index * slotWidth + (slotWidth - barWidth) / 2;
+            const averageY = yFor(row.average_power_kw);
+            const peakY = yFor(row.peak_power_kw);
+            return (
+              <g key={row.interval_index}>
+                <rect className="load-average-bar" data-load-interval={row.interval_index} x={x} y={averageY} width={barWidth} height={Math.max(0, 94 - averageY)} rx={Math.min(4, barWidth / 4)}>
+                  <title>{`Interval ${row.interval_index + 1}: average ${formatValue(row.average_power_kw)} kW; delivered ${formatValue(row.delivered_energy_kwh)} kWh`}</title>
+                </rect>
+                <line className="load-peak-marker" x1={x} y1={peakY} x2={x + barWidth} y2={peakY}>
+                  <title>{`Interval ${row.interval_index + 1}: segment peak ${formatValue(row.peak_power_kw)} kW`}</title>
+                </line>
+              </g>
+            );
+          })}
           <text x="4" y={Math.max(12, capY - 4)} className="capacity-label">Capacity {formatValue(depotPowerKw)} kW</text>
           <text x="4" y="113" className="chart-label">Interval 1</text>
           <text x="836" y="113" textAnchor="end" className="chart-label">Interval {rows.length}</text>

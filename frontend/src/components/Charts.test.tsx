@@ -62,6 +62,27 @@ function intervalLoadRows(scenario: Scenario): AggregateDepotLoad[] {
   }));
 }
 
+describe('Discrete interval visualisation', () => {
+  it('renders one carbon-intensity bar per interval without interpolating between intervals', () => {
+    const scenario = scenarioWithSize(1, 2);
+    const { container } = render(<CarbonProfileChart profile={scenario.carbon_intensity_profile} />);
+
+    expect(container.querySelectorAll('.carbon-interval-bar')).toHaveLength(2);
+    expect(container.querySelector('.intensity-line')).toBeNull();
+  });
+
+  it('renders one average-load bar and one peak marker per interval', () => {
+    const scenario = scenarioWithSize(1, 2);
+    const rows = intervalLoadRows(scenario);
+    const { container } = render(<DepotLoadChart rows={rows} depotPowerKw={10} label="Demo" />);
+
+    expect(container.querySelectorAll('.load-average-bar')).toHaveLength(2);
+    expect(container.querySelectorAll('.load-peak-marker')).toHaveLength(2);
+    expect(container.querySelector('.load-average-line')).toBeNull();
+    expect(container.querySelector('.load-peak-line')).toBeNull();
+  });
+});
+
 describe('ScheduleChart', () => {
   it('keeps ordinary scenario ticks and allocation detail readable', () => {
     const scenario = createDemoScenario();

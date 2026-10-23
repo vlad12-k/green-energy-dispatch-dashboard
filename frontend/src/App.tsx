@@ -1,10 +1,9 @@
 import { useRef, useState } from 'react';
 import type { FieldErrors, Scenario, SimulationResult } from './api/client';
 import { SimulationApiError, evaluateScenario } from './api/client';
-import { ResultsPanel } from './components/ResultsPanel';
+import { ResultsDetailsPanel, ResultsPanel } from './components/ResultsPanel';
 import { ScenarioEditor } from './components/ScenarioEditor';
 import { createDemoScenario, scenarioSignature } from './data/scenario';
-import { formatValue } from './utils/number-format';
 
 interface EvaluationSnapshot {
   revision: number;
@@ -12,10 +11,6 @@ interface EvaluationSnapshot {
 }
 
 type EvaluationStatus = 'edited' | 'running' | 'complete' | 'error';
-
-function getRequiredEnergy(scenario: Scenario): number {
-  return scenario.vehicles.reduce((total, vehicle) => total + vehicle.required_energy_kwh, 0);
-}
 
 function isScenarioShape(value: unknown): value is Scenario {
   if (typeof value !== 'object' || value === null) return false;
@@ -75,8 +70,6 @@ export default function App() {
   const activeRequest = useRef<AbortController | null>(null);
   const isCurrentResult = evaluation !== null && evaluation.revision === revision;
   const result = isCurrentResult ? evaluation.result : null;
-  const requiredEnergy = getRequiredEnergy(scenario);
-
   const updateScenario = (next: Scenario) => {
     activeRequest.current?.abort();
     requestSequence.current += 1;
@@ -162,75 +155,93 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#main-content" aria-label="Green Energy Dispatch, Operator Dashboard">
+      <aside className="side-rail" aria-label="Application rail">
+        <a className="brand" href="#main-content" aria-label="Green Energy Dispatch, Dispatch Workbench">
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
-          <span className="brand-copy"><strong>GREEN ENERGY</strong><small>DISPATCH SYSTEMS</small></span>
+          <span className="brand-copy"><strong>GED / LAB</strong><small>DISPATCH SYSTEMS</small></span>
         </a>
-        <div className="topbar-right"><span className="environment-label"><i /> LOCAL SIMULATION</span><span className="topbar-divider" /><span className="topbar-version">OPERATOR CONSOLE <b>01</b></span></div>
-      </header>
+        <span className="rail-label">WORKSPACES</span>
+        <nav className="rail-nav" aria-label="Workspace sections">
+          <a aria-label="Scenario" href="#scenario-heading"><span className="rail-index">01</span><span>Scenario</span><span className="rail-arrow" aria-hidden="true">↗</span></a>
+          <a aria-label="Analysis" href="#results-pane"><span className="rail-index">02</span><span>Analysis</span><span className="rail-arrow" aria-hidden="true">↗</span></a>
+          {result && <a aria-label="Schedules" href="#schedule-details-heading"><span className="rail-index">03</span><span>Schedules</span><span className="rail-arrow" aria-hidden="true">↗</span></a>}
+          <a aria-label="Data basis" href="#source-basis"><span className="rail-index">04</span><span>Data basis</span><span className="rail-arrow" aria-hidden="true">↗</span></a>
+        </nav>
+        <div className="rail-spacer" />
+        <div className="rail-boundary"><span className="rail-boundary-mark" aria-hidden="true">S</span><div><strong>SIMULATION ONLY</strong><small>LOCAL / NO ACTUATION</small></div></div>
+        <span className="rail-version">EV DEPOT · SYNTHETIC INPUT</span>
+      </aside>
 
-      <main id="main-content" className="main-content">
-        <section className="page-intro">
-          <div>
-            <p className="eyebrow"><span className="eyebrow-line" /> EV DEPOT / SCENARIO EVALUATION</p>
-            <h1>Operator dashboard</h1>
-            <p className="page-summary">Configure a bounded synthetic depot scenario, then compare schedules calculated by the Python simulation engine.</p>
+      <div className="app-frame">
+        <header className="topbar">
+          <div className="topbar-context">
+            <span>EV DEPOT / ACTIVE SCENARIO</span>
+            <strong title={scenario.scenario_id}>{scenario.scenario_id || 'Unnamed scenario'}</strong>
           </div>
-          <div className="simulation-boundary"><span className="boundary-icon" aria-hidden="true">⌁</span><div><strong>Simulation only</strong><span>No live control · no trading</span></div></div>
-        </section>
-
-        <section className="overview-grid" aria-label="Current scenario overview">
-          <article className="overview-card overview-scenario"><span className="overview-label">SCENARIO</span><strong title={scenario.scenario_id}>{scenario.scenario_id || 'Unnamed scenario'}</strong><span className="overview-foot"><i className="synthetic-dot" /> synthetic_scenario · simulation-only</span></article>
-          <article className="overview-card"><span className="overview-label">FLEET SIZE</span><strong>{scenario.vehicles.length}<small> vehicles</small></strong><span className="overview-foot">Availability windows defined per vehicle</span></article>
-          <article className="overview-card"><span className="overview-label">REQUIRED ENERGY</span><strong>{formatValue(requiredEnergy)}<small> kWh</small></strong><span className="overview-foot">{result ? `Baseline delivered ${formatValue(Object.values(result.baseline_delivered_energy_kwh).reduce((a, b) => a + b, 0))} kWh` : 'Awaiting simulation response'}</span></article>
-          <article className="overview-card"><span className="overview-label">DEPOT CAPACITY</span><strong>{formatValue(scenario.depot_power_kw)}<small> kW</small></strong><span className="overview-foot">Configured aggregate power limit</span></article>
-          <article className="overview-card"><span className="overview-label">PEAK SCHEDULED LOAD</span><strong>{result ? `${formatValue(Math.max(result.baseline_peak_depot_power_kw, result.carbon_aware.peak_depot_power_kw))}` : '—'}<small>{result ? ' kW' : ' not evaluated'}</small></strong><span className="overview-foot">Highest reported segment peak across schedules</span></article>
-        </section>
-
-        <div className={`run-status run-status-${status}`} role="status" aria-live="polite" aria-atomic="true">
-          <span className="run-indicator" aria-hidden="true">{status === 'running' ? '◌' : status === 'complete' ? '✓' : status === 'error' ? '!' : '·'}</span>
-          <span>{statusMessage}</span>
-          <button className="button button-primary run-button" type="button" onClick={runSimulation} disabled={status === 'running'}>
-            {status === 'running' ? <><span className="spinner" aria-hidden="true" /> Evaluating…</> : 'Run simulation'}
-          </button>
-        </div>
-        {apiError && <div className="error-banner" role="alert"><strong>Simulation could not be completed</strong><span>{apiError}</span></div>}
-
-        <div className="workspace-grid">
-          <div className="editor-column">
-            <ScenarioEditor
-              scenario={scenario}
-              errors={fieldErrors}
-              importMessage={importMessage}
-              onChange={updateScenario}
-              onLoadExample={loadExample}
-              onImport={importScenario}
-              onExport={exportScenario}
-            />
+          <div className="topbar-right">
+            <span className={`status-chip status-${status}`} aria-hidden="true">
+              <i />
+              <span className="status-chip-label-full">{status === 'running' ? 'EVALUATING' : status === 'complete' ? 'EVALUATION COMPLETE' : status === 'error' ? 'RUN FAILED' : 'INPUTS EDITED'}</span>
+              <span className="status-chip-label-compact">{status === 'running' ? 'RUNNING' : status === 'complete' ? 'COMPLETE' : status === 'error' ? 'FAILED' : 'EDITED'}</span>
+            </span>
+            <button className="button button-primary topbar-run-button" type="button" onClick={runSimulation} disabled={status === 'running'}>
+              {status === 'running' ? <><span className="spinner" aria-hidden="true" /> Evaluating…</> : 'Run simulation'}
+            </button>
           </div>
-          <section className="analysis-column" aria-label="Simulation output">
-            {!result ? (
-              <div className="panel empty-results">
-                <div className="empty-icon" aria-hidden="true"><span>↗</span><span>↘</span></div>
-                <p className="eyebrow">RESULTS PANE</p>
-                <h2>{evaluation && !isCurrentResult ? 'Results are out of date' : 'Ready to evaluate'}</h2>
-                <p>{evaluation && !isCurrentResult ? 'The inputs have changed since the last run. Earlier results are withheld to prevent misattribution.' : 'Submit the current synthetic scenario to request both schedules from the FastAPI simulation endpoint.'}</p>
-                <div className="empty-checklist"><span><i>01</i> Validate scenario inputs</span><span><i>02</i> Run Python scheduling strategies</span><span><i>03</i> Inspect service and proxy outputs</span></div>
-                <button className="button button-primary" type="button" onClick={runSimulation} disabled={status === 'running'}>{status === 'running' ? 'Evaluating…' : 'Evaluate this scenario'}</button>
-              </div>
-            ) : <ResultsPanel result={result} scenario={scenario} />}
+        </header>
+
+        <main id="main-content" className="main-content">
+          <section className="workspace-heading" aria-labelledby="workspace-title">
+            <div>
+              <p className="eyebrow">CONTROL ROOM / DEPOT DISPATCH</p>
+              <h1 id="workspace-title">Dispatch workbench</h1>
+            </div>
+            <p>Configure one synthetic scenario, then inspect both API-returned schedules.</p>
           </section>
-        </div>
 
-        <section className="signal-note panel" aria-labelledby="signal-note-heading">
-          <div className="signal-icon" aria-hidden="true">i</div>
-          <div><p className="eyebrow">SOURCE SEPARATION</p><h2 id="signal-note-heading">Synthetic profile — no live NESO signal used</h2><p>This dashboard evaluates manually configured synthetic intensity values only. The existing read-only NESO endpoint remains separate and is not connected to this scheduler.</p></div>
-          <span className="signal-status">NOT CONNECTED</span>
-        </section>
+          <div className={`run-status run-status-${status}`} role="status" aria-live="polite" aria-atomic="true">
+            <span className="run-indicator" aria-hidden="true">{status === 'running' ? '◌' : status === 'complete' ? '✓' : status === 'error' ? '!' : '·'}</span>
+            <span>{statusMessage}</span>
+          </div>
+          {apiError && <div className="error-banner" role="alert"><strong>Simulation could not be completed</strong><span>{apiError}</span></div>}
 
-        <footer className="page-footer"><span>GREEN ENERGY DISPATCH <b>·</b> LOCAL ADVISORY TOOL</span><span>NO PHYSICAL ACTUATION <b>·</b> NO ELECTRICITY TRADING</span></footer>
-      </main>
+          <div className="workbench-grid">
+            <aside className="scenario-dock" aria-label="Scenario setup">
+              <ScenarioEditor
+                scenario={scenario}
+                errors={fieldErrors}
+                importMessage={importMessage}
+                onChange={updateScenario}
+                onLoadExample={loadExample}
+                onImport={importScenario}
+                onExport={exportScenario}
+              />
+            </aside>
+            <section id="results-pane" className="analysis-column" aria-label="Simulation output">
+              {!result ? (
+                <div className="panel empty-results">
+                  <div className="empty-results-top"><span>ANALYSIS / AWAITING EVALUATION</span><span>NO RESULT</span></div>
+                  <div className="empty-graphic" aria-hidden="true"><span>01</span><i /><span>02</span></div>
+                  <p className="eyebrow">RUN CURRENT SCENARIO</p>
+                  <h2>{evaluation && !isCurrentResult ? 'Results are out of date' : 'Ready to evaluate'}</h2>
+                  <p>{evaluation && !isCurrentResult ? 'The inputs have changed since the last run. Earlier results are withheld to prevent misattribution.' : 'Send this synthetic scenario to the FastAPI simulation endpoint to calculate both existing schedules.'}</p>
+                  <div className="empty-step-grid"><div><span>01 / INPUT</span><strong>Scenario configuration</strong></div><div><span>02 / EVALUATION</span><strong>Two scheduling strategies</strong></div><div><span>03 / OUTPUT</span><strong>Service and proxy results</strong></div></div>
+                  <button className="button button-primary" type="button" onClick={runSimulation} disabled={status === 'running'}>{status === 'running' ? 'Evaluating…' : 'Evaluate this scenario'}</button>
+                </div>
+              ) : <ResultsPanel result={result} scenario={scenario} />}
+            </section>
+          </div>
+          {result && <div className="schedule-workspace"><ResultsDetailsPanel result={result} scenario={scenario} /></div>}
+
+          <section id="source-basis" className="signal-note panel" aria-labelledby="signal-note-heading">
+            <span className="signal-index">DATA / 01</span>
+            <div><p className="eyebrow">SOURCE BOUNDARY</p><h2 id="signal-note-heading">Synthetic profile — no live NESO signal used</h2><p>This dashboard evaluates manually configured synthetic intensity values only. The existing read-only NESO endpoint remains separate and is not connected to this scheduler.</p></div>
+            <span className="signal-status">NOT CONNECTED</span>
+          </section>
+
+          <footer className="page-footer"><span>GREEN ENERGY DISPATCH <b>·</b> LOCAL ADVISORY TOOL</span><span>NO PHYSICAL ACTUATION <b>·</b> NO ELECTRICITY TRADING</span></footer>
+        </main>
+      </div>
     </div>
   );
 }

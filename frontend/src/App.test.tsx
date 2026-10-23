@@ -8,12 +8,22 @@ import { jsonResponse, incompleteSimulationResult, simulationResult } from './te
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Operator dashboard', () => {
+  it('organises controls and analysis in the new workbench shell', () => {
+    render(<App />);
+
+    expect(screen.getByRole('navigation', { name: 'Workspace sections' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Dispatch workbench' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Scenario configuration' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Simulation output' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run simulation' })).toBeVisible();
+  });
+
   it('loads the synthetic example, edits it and renders backend response values', async () => {
     const user = userEvent.setup();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(simulationResult())));
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: 'Operator dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Dispatch workbench' })).toBeInTheDocument();
     expect(screen.getByLabelText('Required energy (kWh)')).toHaveValue(8);
     await user.click(screen.getByRole('button', { name: 'Load synthetic example' }));
     const energy = screen.getByLabelText('Required energy (kWh)');
@@ -31,6 +41,16 @@ describe('Operator dashboard', () => {
     expect(screen.getByText('1,100')).toBeInTheDocument();
     expect(screen.getAllByText('Complete schedule demonstrated')).toHaveLength(2);
     expect(screen.getByText(/Synthetic carbon-intensity-weighted energy proxy only/)).toBeInTheDocument();
+  });
+
+  it('provides workspace rail anchors for scenario, analysis and source basis', () => {
+    render(<App />);
+
+    expect(screen.getByRole('navigation', { name: 'Workspace sections' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Scenario' })).toHaveAttribute('href', '#scenario-heading');
+    expect(screen.getByRole('link', { name: 'Analysis' })).toHaveAttribute('href', '#results-pane');
+    expect(screen.getByRole('link', { name: 'Data basis' })).toHaveAttribute('href', '#source-basis');
+    expect(screen.getByRole('complementary', { name: 'Application rail' })).toBeInTheDocument();
   });
 
   it('withholds stale results and ignores an in-flight response after editing', async () => {
@@ -88,7 +108,7 @@ describe('Operator dashboard', () => {
 
     await user.click(screen.getByRole('button', { name: 'Run simulation' }));
 
-    expect(await screen.findByText('Unavailable')).toBeInTheDocument();
+    expect(await screen.findByText('Not comparable')).toBeInTheDocument();
     expect(screen.getAllByText('Complete schedule not demonstrated')).toHaveLength(2);
     expect(screen.getAllByText(/This heuristic did not demonstrate complete service/)).toHaveLength(2);
     expect(screen.getByText(/At least one strategy did not demonstrate complete service/)).toBeInTheDocument();
