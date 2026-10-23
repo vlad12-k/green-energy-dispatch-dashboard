@@ -34,7 +34,7 @@ Open <http://127.0.0.1:5173>. Vite serves the frontend and proxies `/api` and `/
 2. Edit the scenario identifier, UTC start, interval length/count, depot limit, vehicle windows and energy/power limits, or per-interval synthetic carbon intensity.
 3. Add/remove vehicles, or import a local JSON file conforming to the EV-depot scenario contract. Client-side import limits files to 256 KiB; authoritative scenario validation remains in FastAPI.
 4. Select **Run simulation**. The dashboard submits the current scenario to the real API. Editing during an in-flight request cancels/invalidates it; stale responses cannot replace newer input state.
-5. Review baseline and carbon-aware schedules, allocation segments, interval-average and peak depot power, required/delivered/unmet energy, constraint checks and comparison eligibility.
+5. Review the **Immediate Baseline** and **Carbon-Aware Heuristic** schedules, allocation segments, interval-average and peak depot power, required/delivered/unmet energy, constraint checks and comparison eligibility.
 6. Select **Export JSON** to download the current scenario inputs. Exports contain no result data or credentials.
 
 After any edit, prior results are hidden until that exact input version has been evaluated. API validation errors are rendered next to the associated fields when FastAPI reports a field location; server-side failures are presented without exposing internal exception details.
@@ -44,7 +44,7 @@ After any edit, prior results are hidden until that exact input version has been
 - Vehicle allocation bars represent actual response `segment_start`/`segment_end` and per-vehicle allocated energy. Their tables provide exact segment times, energy, average power, and intensity.
 - Depot charts distinguish interval-average power, segment peak power, and the depot capacity reference. Average power is not presented as instantaneous power.
 - Carbon-intensity profile chart and table use the edited synthetic inputs; they are not NESO observations or forecasts.
-- Per-strategy proxies retain the input unit (`gCO2` or `gCO2e`). The signed comparison is **baseline proxy − carbon-aware proxy**: positive, zero, and negative values are all retained.
+- Per-strategy proxies retain the input unit (`gCO2` or `gCO2e`). The signed comparison is **Immediate Baseline proxy − Carbon-Aware Heuristic proxy**: positive, zero, and negative values are all retained.
 - A comparison is eligible only if both schedules fulfil the same complete vehicle energy requirements. When it is not eligible, the reason is shown; a lower proxy from reduced delivery is never described as a benefit.
 - Constraints and status use text as well as colour. Expand the data tables for numerical alternatives to the charts.
 - Energy, power, and proxy values use up to six decimal places; very small or very large values use scientific notation, and true zero remains `0`. A non-zero shortfall is therefore not rounded into an exact zero.
@@ -91,9 +91,9 @@ The full repository test suite also includes database integration tests and requ
 
 ## Screenshot
 
-Captured from the running Vite frontend and FastAPI endpoint after changing the synthetic request to 8.5 kWh and the second intensity to 50 gCO2/kWh. The displayed values are the actual simulation response for those inputs.
+Captured from the current dispatch workbench, running Vite frontend, and FastAPI endpoint after changing the synthetic request to 8.5 kWh and the second intensity to 50 gCO2/kWh. The displayed values are the actual simulation response for those inputs. The scenario editor dock, strategy-comparison canvas, and lower per-strategy schedule band are described in the [workbench design and QA record](design/ev-depot-dispatch-workbench.md).
 
-![Operator Dashboard after a real synthetic simulation](screenshots/operator-dashboard-desktop.png)
+![Current dispatch workbench after a real synthetic simulation](screenshots/ev-depot-workbench-after-1440x900.png)
 
 ## Implemented versus future work
 

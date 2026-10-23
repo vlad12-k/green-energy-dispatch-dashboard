@@ -9,7 +9,7 @@ A UK grid-aware energy operations platform in active development. The current ap
 - `GET /health` — single service health endpoint.
 - `GET /api/v1/energy/carbon-intensity` — live NESO regional intensity reading; returns actual when available, otherwise explicitly marks forecast. Stale, malformed, or unavailable upstream data fails closed with HTTP 503; no fabricated fallback is used.
 - `POST /api/v1/energy/carbon-gate` — transparent simulated `allow`, `defer`, or `block` recommendation based on an explicitly illustrative policy.
-- `POST /api/v1/simulations/ev-depot/evaluate` — stateless, synthetic-only evaluation through the existing baseline and carbon-aware Python scheduler; no database or upstream data calls.
+- `POST /api/v1/simulations/ev-depot/evaluate` — stateless, synthetic-only comparison of the existing **Immediate Baseline** and **Carbon-Aware Heuristic** Python strategies; no database or upstream data calls.
 - React/TypeScript operator dashboard — local scenario editing, JSON import/export, real API evaluation, accessible schedule/load/intensity charts, validation feedback, and equal-service proxy explanations.
 - Pydantic validation rejects negative, non-finite, malformed, and unexpected request fields.
 - Production defaults disable debug mode and interactive OpenAPI docs.
@@ -51,6 +51,8 @@ npm run dev
 ```
 
 Open <http://127.0.0.1:5173>. Vite proxies `/api` and `/health` to `http://127.0.0.1:8000`; browser requests remain same-origin, so the API does not enable permissive CORS. Load the synthetic example, edit the vehicle energy requirement and carbon profile, run the simulation, inspect both returned schedules and export the scenario JSON. The dashboard does not call the NESO endpoint. See [`docs/OPERATOR_DASHBOARD.md`](docs/OPERATOR_DASHBOARD.md) for the operator guide, result interpretation, API contract, and implemented/future boundaries.
+
+See [`docs/design/ev-depot-dispatch-workbench.md`](docs/design/ev-depot-dispatch-workbench.md) for the current visual architecture, selected design reference, screenshots, local QA evidence, and release limitations.
 
 The API base is same-origin by default (`VITE_API_BASE_URL` is empty). Only set it to a same-origin API prefix when changing the local proxy configuration; cross-origin access is intentionally not enabled.
 

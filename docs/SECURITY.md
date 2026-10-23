@@ -47,3 +47,11 @@ The React/Vite dashboard is a local-development client, not a production securit
 ## Other checks
 
 The existing CI also runs `pip-audit` against declared runtime and development dependencies and Gitleaks against repository history and the working tree. Results are per-run evidence and should not be inferred from this local container scan.
+
+## Release-candidate preflight — 2026-10-22
+
+- `npm audit --json` (all frontend dependencies) and `npm audit --omit=dev --json` (production dependencies) both reported zero vulnerabilities at every severity. `npm ls --depth=0` found no missing direct dependencies.
+- `pip-audit --strict` reported no known vulnerabilities in 30 runtime requirements or 38 combined runtime/development requirements; `pip check` reported no broken requirements. The audit emitted warnings that invalid local HTTP-cache entries were ignored, then completed successfully with no known vulnerabilities.
+- Gitleaks scanned the changed frontend source, E2E, public assets, HTML entry point, README, operator guide and design documents; it reported no leaks. This scoped local scan did not inspect `.env` files or claim to scan repository history.
+- GitHub Actions run [39421372814](https://github.com/vlad12-k/green-energy-dispatch-dashboard/actions/runs/39421372814) succeeded on 2026-10-20 for the already-merged PR head `8d336fb`. Its newly built Alpine 3.24.2 image reported zero OS and Python-package vulnerabilities. That run predates this uncommitted frontend/documentation candidate; the current diff does not change the Dockerfile or dependency manifests.
+- A fresh local Trivy scan of `green-energy-dispatch-dashboard:ci` did not complete before the tool timeout. The local Trivy database was last updated on 2026-10-17, so that interrupted attempt is not treated as a clean scan. Rebuild and rescan the image in CI for the follow-up release commit before deployment.

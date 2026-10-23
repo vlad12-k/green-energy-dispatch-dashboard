@@ -1,5 +1,6 @@
 import type { CarbonAwareSchedule, Scenario, SimulationResult } from '../api/client';
 import { CarbonProfileChart, DepotLoadChart, ScheduleChart } from './Charts';
+import { DispatchFlow } from './DispatchFlow';
 import { formatValue } from '../utils/number-format';
 
 function StatusBadge({ complete }: { complete: boolean }) {
@@ -94,8 +95,6 @@ function ScheduleCard({
 }
 
 export function ResultsPanel({ result, scenario }: { result: SimulationResult; scenario: Scenario }) {
-  const baselineComplete = result.baseline_requirements_met_for_comparison;
-  const carbonComplete = result.carbon_aware_feasible;
   const difference = result.absolute_carbon_proxy_reduction;
   const diffClass = difference === null ? '' : difference > 0 ? 'positive-difference' : difference < 0 ? 'negative-difference' : 'zero-difference';
   const signedDifference = difference === null ? null : `${difference > 0 ? '+' : ''}${formatValue(difference)}`;
@@ -103,22 +102,58 @@ export function ResultsPanel({ result, scenario }: { result: SimulationResult; s
   return (
     <section className="results-section" aria-labelledby="results-heading">
       <div className="results-section-heading">
-        <div><p className="eyebrow">BACKEND-CALCULATED OUTPUT</p><h2 id="results-heading">Schedule comparison</h2></div>
+        <div><p className="eyebrow">EVALUATION / TWO STRATEGIES</p><h2 id="results-heading">Schedule comparison</h2></div>
         <span className="source-tag"><span aria-hidden="true">●</span> Synthetic input · {result.input_provenance.intensity_unit}</span>
       </div>
 
-      <div className="comparison-strip panel">
-        <div className="comparison-intro"><span className="eyebrow">EQUAL-SERVICE COMPARISON</span><strong>{result.comparison_eligible ? 'Eligible' : 'Unavailable'}</strong><p>{result.comparison_eligible ? 'Both strategies meet the full vehicle energy requirements.' : result.comparison_unavailable_reason}</p></div>
-        <div className="proxy-value"><span>Baseline proxy</span><strong>{formatValue(result.baseline_carbon_proxy)} <small>{result.carbon_proxy_unit}</small></strong></div>
-        <div className="proxy-value"><span>Carbon-aware proxy</span><strong>{formatValue(result.carbon_aware_carbon_proxy)} <small>{result.carbon_proxy_unit}</small></strong></div>
-        <div className={`proxy-value difference-value ${diffClass}`}><span>Difference <small>(baseline − carbon-aware)</small></span><strong>{signedDifference ?? '—'} <small>{result.comparison_eligible ? result.carbon_proxy_unit : ''}</small></strong><span className="percentage-value">{result.percentage_carbon_proxy_reduction === null ? result.percentage_difference_unavailable_reason ?? 'Not comparable' : `${result.percentage_carbon_proxy_reduction > 0 ? '+' : ''}${formatValue(result.percentage_carbon_proxy_reduction)}%`}</span></div>
+      <div className="comparison-board panel" aria-label="Carbon proxy strategy comparison">
+        <div className={`difference-value comparison-delta ${diffClass}`}>
+          <span>DELTA / 01 − 02</span>
+          <small>Baseline − carbon-aware</small>
+          <strong>{signedDifference ?? '—'} <small>{result.comparison_eligible ? result.carbon_proxy_unit : ''}</small></strong>
+          <span className="percentage-value">{result.percentage_carbon_proxy_reduction === null ? result.percentage_difference_unavailable_reason ?? 'Not comparable' : `${result.percentage_carbon_proxy_reduction > 0 ? '+' : ''}${formatValue(result.percentage_carbon_proxy_reduction)}%`}</span>
+        </div>
+        <div className="comparison-board-main">
+          <div className="comparison-intro">
+            <div><span className="eyebrow">EQUAL-SERVICE BASIS</span><p>{result.comparison_eligible ? 'Both strategies meet the full vehicle energy requirements.' : result.comparison_unavailable_reason}</p></div>
+            <strong className={result.comparison_eligible ? 'comparison-eligible' : 'comparison-unavailable'}>{result.comparison_eligible ? 'Comparable' : 'Not comparable'}</strong>
+          </div>
+          <div className="strategy-lanes">
+            <article className="strategy-proxy strategy-proxy-baseline">
+              <span className="strategy-lane-index">01</span>
+              <div className="strategy-proxy-heading"><span>IMMEDIATE BASELINE</span><h3>Baseline schedule</h3><small>{result.baseline.strategy}</small></div>
+              <div className="proxy-reading"><span>CARBON PROXY</span><strong>{formatValue(result.baseline_carbon_proxy)} <small>{result.carbon_proxy_unit}</small></strong></div>
+            </article>
+            <article className="strategy-proxy strategy-proxy-carbon">
+              <span className="strategy-lane-index">02</span>
+              <div className="strategy-proxy-heading"><span>CARBON-AWARE HEURISTIC</span><h3>Heuristic schedule</h3><small>{result.carbon_aware.strategy}</small></div>
+              <div className="proxy-reading"><span>CARBON PROXY</span><strong>{formatValue(result.carbon_aware_carbon_proxy)} <small>{result.carbon_proxy_unit}</small></strong></div>
+            </article>
+          </div>
+        </div>
       </div>
       <p className="proxy-disclaimer">Synthetic carbon-intensity-weighted energy proxy only; not measured emissions, a forecast, or a real-world savings claim. A failed heuristic is not proof of infeasibility.</p>
 
-      <div className="panel intensity-panel">
-        <CarbonProfileChart profile={scenario.carbon_intensity_profile} />
+      <div className="results-visual-grid">
+        <div className="panel intensity-panel">
+          <div className="visual-panel-index"><span>INPUT PROFILE / DISCRETE INTERVALS</span><span>{scenario.carbon_intensity_profile.length} INTERVAL{scenario.carbon_intensity_profile.length === 1 ? '' : 'S'}</span></div>
+          <CarbonProfileChart profile={scenario.carbon_intensity_profile} />
+        </div>
+        <DispatchFlow result={result} scenario={scenario} />
       </div>
+    </section>
+  );
+}
 
+export function ResultsDetailsPanel({ result, scenario }: { result: SimulationResult; scenario: Scenario }) {
+  const baselineComplete = result.baseline_requirements_met_for_comparison;
+  const carbonComplete = result.carbon_aware_feasible;
+
+  return (
+    <section className="schedule-details" aria-labelledby="schedule-details-heading">
+      <div className="schedule-details-heading">
+        <div><p className="eyebrow">SCHEDULE OUTPUTS / PER STRATEGY</p><h2 id="schedule-details-heading">Interval and constraint detail</h2></div>
+      </div>
       <div className="schedule-grid">
         <ScheduleCard
           title="Immediate baseline"

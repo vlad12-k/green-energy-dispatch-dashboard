@@ -62,6 +62,27 @@ function intervalLoadRows(scenario: Scenario): AggregateDepotLoad[] {
   }));
 }
 
+describe('Discrete interval visualisation', () => {
+  it('renders one carbon-intensity bar per interval without interpolating between intervals', () => {
+    const scenario = scenarioWithSize(1, 2);
+    const { container } = render(<CarbonProfileChart profile={scenario.carbon_intensity_profile} />);
+
+    expect(container.querySelectorAll('.carbon-interval-bar')).toHaveLength(2);
+    expect(container.querySelector('.intensity-line')).toBeNull();
+  });
+
+  it('renders one average-load bar and one peak marker per interval', () => {
+    const scenario = scenarioWithSize(1, 2);
+    const rows = intervalLoadRows(scenario);
+    const { container } = render(<DepotLoadChart rows={rows} depotPowerKw={10} label="Demo" />);
+
+    expect(container.querySelectorAll('.load-average-bar')).toHaveLength(2);
+    expect(container.querySelectorAll('.load-peak-marker')).toHaveLength(2);
+    expect(container.querySelector('.load-average-line')).toBeNull();
+    expect(container.querySelector('.load-peak-line')).toBeNull();
+  });
+});
+
 describe('ScheduleChart', () => {
   it('keeps ordinary scenario ticks and allocation detail readable', () => {
     const scenario = createDemoScenario();
@@ -110,6 +131,29 @@ describe('ScheduleChart', () => {
     expect(loadTable.querySelector('tbody tr:last-child')).toHaveTextContent(lastLoadInterval.interval_start);
     expect(loadTable.querySelector('tbody tr:last-child')).toHaveTextContent(lastLoadInterval.interval_end);
     expect(loadTable).toHaveAttribute('aria-label', 'Maximum scenario depot load by interval');
+  });
+
+  it('exposes each horizontally scrollable data table as a labelled keyboard region', () => {
+    const scenario = createDemoScenario();
+    render(
+      <>
+        <CarbonProfileChart profile={scenario.carbon_intensity_profile} />
+        <ScheduleChart schedule={simulationResult().carbon_aware} scenario={scenario} label="Baseline" />
+        <DepotLoadChart rows={intervalLoadRows(scenario)} depotPowerKw={100} label="Baseline" />
+      </>,
+    );
+
+    fireEvent.click(screen.getByText('View interval values'));
+    fireEvent.click(screen.getByText('View allocation data'));
+    fireEvent.click(screen.getByText('View load data'));
+
+    for (const name of [
+      'Carbon intensity profile data table; horizontally scrollable',
+      'Baseline charging allocation data table; horizontally scrollable',
+      'Baseline depot load data table; horizontally scrollable',
+    ]) {
+      expect(screen.getByRole('region', { name })).toHaveAttribute('tabindex', '0');
+    }
   });
 
   it('uses fewer time ticks in a narrow viewport while retaining the maximum on a wider viewport', () => {
