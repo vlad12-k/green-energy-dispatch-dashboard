@@ -129,17 +129,25 @@ describe('Operator dashboard', () => {
   it('imports a local scenario JSON file', async () => {
     const user = userEvent.setup();
     render(<App />);
-    const imported = JSON.parse(JSON.stringify(createDemoScenario())) as {
-      vehicles: Array<{ required_energy_kwh: number }>;
-      [key: string]: unknown;
-    };
+    const imported = createDemoScenario();
     imported.vehicles[0]!.required_energy_kwh = 6.25;
+    imported.carbon_intensity_profile.forEach((row) => {
+      row.provenance_label = 'synthetic:imported-fixture-v1';
+    });
     const file = new File([JSON.stringify(imported)], 'scenario.json', { type: 'application/json' });
 
     await user.upload(screen.getByLabelText('Import scenario JSON'), file);
 
     expect(screen.getByLabelText('Required energy (kWh)')).toHaveValue(6.25);
+    expect(screen.getByText('synthetic:imported-fixture-v1')).toBeInTheDocument();
     expect(screen.getByText(/Imported scenario\.json/)).toBeInTheDocument();
+  });
+
+  it('describes each carbon intensity input with its unit', () => {
+    render(<App />);
+
+    expect(screen.getByRole('spinbutton', { name: /Interval 01/ }))
+      .toHaveAccessibleDescription('gCO2/kWh');
   });
 
   it('rejects imported non-synthetic profiles without relabelling them', async () => {

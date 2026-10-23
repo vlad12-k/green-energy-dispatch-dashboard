@@ -44,6 +44,12 @@ export function ScenarioEditor({
     updateScenario({ carbon_intensity_profile });
   };
 
+  const profileProvenanceLabels = [...new Set(
+    scenario.carbon_intensity_profile
+      .map((row) => row.provenance_label)
+      .filter((label) => label.length > 0),
+  )];
+
   const changeStart = (value: string) => {
     const start_at = fromUtcInput(value);
     updateScenario({
@@ -200,16 +206,18 @@ export function ScenarioEditor({
         <div className="intensity-list">
           {scenario.carbon_intensity_profile.map((row, index) => {
             const path = `carbon_intensity_profile.${index}.intensity_value`;
+            const unitId = `${path.replaceAll('.', '-')}-unit`;
+            const describedBy = errors[path] ? `${unitId} ${fieldErrorId(path)}` : unitId;
             return (
               <div className="intensity-row" key={`${row.interval_start}-${index}`}>
                 <label htmlFor={path}>Interval {String(index + 1).padStart(2, '0')} <span>{row.interval_start.slice(11, 16)}–{row.interval_end.slice(11, 16)} UTC</span></label>
-                <div className="intensity-input"><input id={path} type="number" min="0" max="1000000000" step="any" value={row.intensity_value} onChange={(event) => updateProfileIntensity(index, Number(event.target.value))} aria-invalid={Boolean(errors[path])} aria-describedby={errors[path] ? fieldErrorId(path) : undefined} /><span>{row.intensity_unit}</span></div>
+                <div className="intensity-input"><input id={path} type="number" min="0" max="1000000000" step="any" value={row.intensity_value} onChange={(event) => updateProfileIntensity(index, Number(event.target.value))} aria-invalid={Boolean(errors[path])} aria-describedby={describedBy} /><span id={unitId}>{row.intensity_unit}</span></div>
                 <FieldError errors={errors} path={path} />
               </div>
             );
           })}
         </div>
-        <p className="provenance-note"><span aria-hidden="true">●</span> Profile provenance is locked to <code>synthetic:operator-dashboard</code>. Imported source labels are validated by the API.</p>
+        <p className="provenance-note"><span aria-hidden="true">●</span> Profile provenance: <code>{profileProvenanceLabels.length > 0 ? profileProvenanceLabels.join(', ') : 'not available'}</code>. Imported source labels are validated by the API.</p>
       </section>
     </section>
   );

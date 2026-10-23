@@ -54,16 +54,61 @@ test('mobile topbar uses a readable compact status without wrapping or clipping'
 });
 
 test('mobile carbon chart labels remain legible without page overflow', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.getByRole('button', { name: 'Run simulation' }).click();
   await expect(page.getByRole('heading', { name: 'Schedule comparison' })).toBeVisible();
 
-  const axisLabelHeight = await page.locator('.intensity-panel .data-chart .chart-label').first()
-    .evaluate((element) => element.getBoundingClientRect().height);
-  expect(axisLabelHeight).toBeGreaterThanOrEqual(7);
-  await expect(page.locator('.intensity-panel .chart-unit')).toHaveCSS('font-size', '8px');
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    const chartText = await page.locator('.data-chart text').evaluateAll((elements) => elements.map((element) => ({
+      fontSize: Number.parseFloat(getComputedStyle(element).fontSize),
+      renderedHeight: element.getBoundingClientRect().height,
+    })));
+    expect(chartText.length).toBeGreaterThan(0);
+    for (const label of chartText) {
+      expect(label.fontSize, `chart text font at ${width}px`).toBeGreaterThanOrEqual(9);
+      expect(label.renderedHeight, `rendered chart text at ${width}px`).toBeGreaterThanOrEqual(7);
+    }
+
+    const chartUnits = await page.locator('.chart-unit').evaluateAll((elements) => elements.map(
+      (element) => Number.parseFloat(getComputedStyle(element).fontSize),
+    ));
+    expect(chartUnits.length).toBeGreaterThan(0);
+    expect(Math.min(...chartUnits), `chart unit font at ${width}px`).toBeGreaterThanOrEqual(9);
+
+    const chartKeys = await page.locator('.chart-key span').evaluateAll((elements) => elements.map(
+      (element) => Number.parseFloat(getComputedStyle(element).fontSize),
+    ));
+    expect(chartKeys.length).toBeGreaterThan(0);
+    expect(Math.min(...chartKeys), `chart key font at ${width}px`).toBeGreaterThanOrEqual(9);
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+
+  const tableSummaries = await page.locator('.data-table-details > summary').all();
+  expect(tableSummaries).toHaveLength(5);
+  for (const summary of tableSummaries) await summary.click();
+  const tableRegions = page.getByRole('region', { name: /data table; horizontally scrollable/ });
+  await expect(tableRegions).toHaveCount(5);
+
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    const tableFontSizes = await tableRegions.locator('table').evaluateAll((elements) => elements.map(
+      (element) => Number.parseFloat(getComputedStyle(element).fontSize),
+    ));
+    expect(tableFontSizes).toHaveLength(5);
+    expect(Math.min(...tableFontSizes), `data table font at ${width}px`).toBeGreaterThanOrEqual(9);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+
+  const firstSummary = page.locator('.data-table-details > summary').first();
+  const firstTableRegion = page.getByRole('region', {
+    name: 'Carbon intensity profile data table; horizontally scrollable',
+  });
+  await firstSummary.focus();
+  await page.keyboard.press('Tab');
+  await expect(firstTableRegion).toBeFocused();
+  await expect(firstTableRegion).toHaveCSS('outline-style', 'solid');
 });
 
 test('simulation flow stays fully visible at intermediate viewport widths', async ({ page }) => {

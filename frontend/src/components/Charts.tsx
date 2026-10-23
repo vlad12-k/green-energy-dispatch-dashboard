@@ -47,7 +47,7 @@ export function CarbonProfileChart({ profile }: { profile: CarbonIntensityInterv
           </svg>
           <details className="data-table-details">
             <summary>View interval values</summary>
-            <div className="table-scroll">
+            <div className="table-scroll" role="region" aria-label="Carbon intensity profile data table; horizontally scrollable" tabIndex={0}>
               <table className="interval-data-table" aria-label="Synthetic carbon intensity profile by interval">
                 <thead><tr><th>Interval</th><th>Start (UTC)</th><th>End (UTC)</th><th>Intensity ({unit})</th></tr></thead>
                 <tbody>{profile.map((row, index) => <tr key={`${row.interval_start}-${index}`}><td>{index + 1}</td><td>{row.interval_start}</td><td>{row.interval_end}</td><td>{formatValue(row.intensity_value)}</td></tr>)}</tbody>
@@ -171,7 +171,7 @@ export function ScheduleChart({ schedule, scenario, label }: {
           {vehicleIds.length <= 12 && <div className="vehicle-legend">{vehicleIds.map((vehicleId, index) => <span key={vehicleId}><i style={{ backgroundColor: VEHICLE_COLOURS[index % VEHICLE_COLOURS.length] }} />{vehicleId}</span>)}</div>}
           <details className="data-table-details">
             <summary>View allocation data</summary>
-            <div className="table-scroll">
+            <div className="table-scroll" role="region" aria-label={`${label} charging allocation data table; horizontally scrollable`} tabIndex={0}>
               <table className="allocation-data-table" aria-label={`${label} charging allocations by segment`}>
                 <thead><tr><th>Vehicle</th><th>Segment (UTC)</th><th>Energy (kWh)</th><th>Segment average (kW)</th><th>Intensity</th></tr></thead>
                 <tbody>{schedule.allocations.map((allocation, index) => <tr key={`${allocation.vehicle_id}-${index}`}><td>{allocation.vehicle_id}</td><td>{allocation.segment_start} – {allocation.segment_end}</td><td>{formatValue(allocation.energy_kwh)}</td><td>{formatValue(allocation.charging_power_kw)}</td><td>{formatValue(allocation.carbon_intensity_value)} {allocation.intensity_unit}</td></tr>)}</tbody>
@@ -225,7 +225,7 @@ export function DepotLoadChart({ rows, depotPowerKw, label }: {
         <div className="chart-key"><span><i className="key-average" />Interval average</span><span><i className="key-peak" />Segment peak</span><span><i className="key-capacity" />Depot limit</span></div>
         <details className="data-table-details">
           <summary>View load data</summary>
-          <div className="table-scroll">
+          <div className="table-scroll" role="region" aria-label={`${label} depot load data table; horizontally scrollable`} tabIndex={0}>
             <table className="load-data-table" aria-label={`${label} depot load by interval`}>
               <thead><tr><th>Interval</th><th>Start (UTC)</th><th>End (UTC)</th><th>Energy (kWh)</th><th>Average power (kW)</th><th>Peak power (kW)</th><th>Depot limit (kW)</th></tr></thead>
               <tbody>{rows.map((row) => <tr key={row.interval_index}><td>{row.interval_index + 1}</td><td>{row.interval_start}</td><td>{row.interval_end}</td><td>{formatValue(row.delivered_energy_kwh)}</td><td>{formatValue(row.average_power_kw)}</td><td>{formatValue(row.peak_power_kw)}</td><td>{formatValue(depotPowerKw)}</td></tr>)}</tbody>
