@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: green-energy-dispatch-staging
+    runtime: docker
+    plan: 0.5c-512mb
+    region: frankfurt
+    branch: main
+    autoDeployTrigger: "off"
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: HOST
+        value: 0.0.0.0
+      - key: SIMULATION_ONLY_MODE
+        value: "true"
+      - key: SERVE_FRONTEND
+        value: "true"
+      - key: MAX_REQUEST_BODY_BYTES
+        value: "65536"
+      - key: API_RATE_LIMIT_REQUESTS_PER_MINUTE
+        value: "60"
+      - key: COLLECTOR_ENABLED
+        value: "false"
