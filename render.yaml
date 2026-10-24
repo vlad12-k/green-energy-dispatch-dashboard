@@ -2,7 +2,7 @@ services:
   - type: web
     name: green-energy-dispatch-staging
     runtime: docker
-    plan: 0.5c-512mb
+    plan: free
     region: frankfurt
     branch: main
     autoDeployTrigger: "off"

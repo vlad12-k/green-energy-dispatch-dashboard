@@ -29,14 +29,23 @@ The EV depot evaluator is stateless. The Blueprint does not provision PostgreSQL
 
 ## Provider cost and constraints
 
-Render's current pricing page lists the `0.5c-512mb` web-service compute plan at **$7/month** (0.5 CPU, 512 MB RAM). This is compute pricing, not a guaranteed total invoice: workspace plan, bandwidth/build overages, taxes, and future provider pricing may affect the amount. The listed Hobby allowance is 5 GB monthly bandwidth (then $0.15/GB) and 500 standard build minutes (then $5 per 1,000 minutes); confirm the live dashboard pricing before provisioning.
+The Blueprint uses Render's **Free** web-service compute plan (`plan: free`): **0.1 CPU and 512 MB RAM**, with no compute charge. This is a portfolio/demo tier, not a production availability target.
 
-The free web-service plan is not recommended for a portfolio demo that should feel continuously available: it has 512 MB RAM, spins down after 15 minutes without inbound traffic and takes about a minute to wake, has 750 free instance-hours per month, may restart, and loses local filesystem changes on spin-down/redeploy. This application is stateless, so the filesystem limitation does not require a database workaround, but the sleep/wake behaviour is visible to visitors.
+- Render spins a Free web service down after **15 minutes without inbound traffic**. The next HTTP request or WebSocket connection wakes it; Render says this takes **about one minute** and may show a loading page. This is approximate cold-start guidance, not a latency guarantee.
+- Render grants **750 Free instance-hours per workspace per calendar month**. Spun-down services do not consume these hours. If the workspace exhausts the allowance, Render suspends all its Free web services until the next month. Other Free services in that workspace share the allowance.
+- The filesystem is ephemeral. Changes are lost on spin-down/redeploy, and Render may restart a Free instance at any time. This app is stateless and stores no user scenarios, so it does not rely on local persistence.
+- Outbound bandwidth and build-pipeline minutes are **workspace-level, shared limits**, not unlimited entitlements attached to this service. Render's current pricing page lists, for example, Hobby at **5 GB outbound bandwidth and 500 standard pipeline minutes per month**; Pro and Scale allocations differ. Check the actual workspace's Billing/Usage page before provisioning.
+- The current pricing page lists supplementary usage at **$0.15 per GB** of outbound bandwidth and **$5 per 1,000** standard pipeline minutes after the included amount. If a payment method is on file, overage billing may apply. Without a payment method, exceeding outbound bandwidth suspends Free services for the rest of that month; exhausting pipeline minutes disables new builds for the rest of the month while existing deployed artifacts keep running. Exhausting Free instance-hours also suspends Free services until the next month.
+- Render's Free service creation does not require adding a payment method. This repository does not add one. Existing workspace billing configuration is not visible from this repository, so inspect it rather than assuming no payment method is attached or that overages cannot be billed.
+
+This remains an intentionally limited portfolio demo: synthetic scenarios only, no live NESO data, physical dispatch, market trading, measured carbon savings, durable user state, or availability SLA. The 0.1 CPU limit, shared process-wide rate limit, cold starts, instance restarts, and monthly workspace quotas can make the service slow or unavailable under concurrency, extended inactivity, or quota exhaustion. Do not present it as a continuously available production service.
 
 References (provider documentation, checked for this candidate):
 
 - [Render pricing](https://render.com/pricing)
 - [Render free-instance limitations](https://render.com/docs/free)
+- [Render build pipeline and included minutes](https://render.com/docs/build-pipeline)
+- [Render Blueprints and Auto Sync](https://render.com/docs/infrastructure-as-code)
 - [Render web services and `PORT`](https://render.com/docs/web-services)
 - [Render Blueprint specification](https://render.com/docs/blueprint-spec)
 - [Render health checks](https://render.com/docs/health-checks)
@@ -44,13 +53,24 @@ References (provider documentation, checked for this candidate):
 
 ## Configuration and deployment
 
-`render.yaml` is a Blueprint proposal for a Frankfurt `0.5c-512mb` Docker web service, built from `main`. It explicitly sets `autoDeployTrigger: off`; merging code will not automatically deploy it. The service is not provisioned by this repository change.
+`render.yaml` declares exactly one Frankfurt Docker web service, `green-energy-dispatch-staging`, on `main` with `plan: free`. It declares no database, disk, worker, Redis/Key Value instance, or other paid resource. The simulation-only settings remain enabled, the collector remains disabled, and `autoDeployTrigger: "off"` remains set.
 
-After the PR is reviewed/merged and a separate deployment approval is given:
+### Auto Deploy is not Blueprint Auto Sync
 
-1. In Render, connect the repository and create/sync the Blueprint. Review the service name, Frankfurt region, plan, environment variables, and expected charges before confirming creation.
-2. Keep auto-deploy disabled. The Render service supplies `PORT` (default 10000); do not replace it with a fixed port. The application reads `PORT` at startup and binds to `0.0.0.0`.
-3. Confirm the first deploy uses the reviewed `main` commit, then wait for Render's `/health` check to pass. Inspect build/runtime logs without copying secrets into tickets or chat.
+- **Service Auto Deploy** is controlled here by `autoDeployTrigger: "off"`. It prevents ordinary commits from automatically deploying new application code to this service.
+- **Blueprint Auto Sync** is a separate Render Dashboard setting. Render documents that it is enabled by default for a linked Blueprint and that pushes modifying its YAML can deploy added or changed resources. It is not disabled by `autoDeployTrigger`. Set the Blueprint's **Settings → Auto Sync → No** and use **Manual Sync** only when deliberately reviewing a Blueprint change.
+- A GitHub merge does not itself call Render or create a service when no Blueprint is connected. However, if a Blueprint is already linked to this repository/branch with Auto Sync enabled, merging a changed `render.yaml` can sync resources. Verify the Dashboard state before merge; it is not observable from this repository.
+
+Before merge or provisioning:
+
+1. In the Render Dashboard, inspect the target workspace's **Billing/Usage** page and verify its included outbound bandwidth, pipeline minutes, current usage, payment-method state, and spend limits. Do not add a payment method. The owner must decide whether the potential loss of service/build capability at free quotas is acceptable.
+2. Check whether a Blueprint is already connected to this repository and `main`. If one exists, inspect its resources and set **Auto Sync = No** before merging or manually syncing. Do not assume the account has no Blueprint or no billing method.
+
+After merge and separate human deployment approval:
+
+1. For a new staging resource, use **New → Blueprint**, connect this repository, select `main`, and review the proposed changes before applying them. Confirm the plan is Free and that exactly one web service will be created; reject any database, disk, worker, Redis/Key Value, or paid resource. Applying/Deploying the Blueprint is the explicit provisioning/deployment action and is outside the changes made in this PR.
+2. Keep service Auto Deploy off and Blueprint Auto Sync set to No. The service supplies `PORT` (default 10000); do not replace it with a fixed port. The application reads `PORT` at startup and binds to `0.0.0.0`.
+3. Confirm the first deployment uses the reviewed `main` commit, then wait for Render's `/health` check to pass. Allow for Free-tier cold starts; inspect build/runtime logs without copying secrets into tickets or chat.
 4. From a checkout containing the matching `examples/carbon_aware_ev_depot_demo.json`, run:
 
    ```bash
@@ -60,7 +80,7 @@ After the PR is reviewed/merged and a separate deployment approval is given:
    The script refuses non-loopback plain HTTP and URL credentials. It verifies health, the root and SPA history fallback, that each built frontend asset is served from the same origin, a real deterministic synthetic evaluation and its provenance/claim flags, and that live energy routes and debug docs are unavailable.
 5. Record the deployed commit SHA, smoke output, health state, and any follow-up. Do not describe this as a live-carbon or trading service.
 
-The `CI and security` workflow builds the Docker image without publishing it, runs the same smoke against a loopback-only container, runs frontend/backend checks and dependency/secret scans, and scans the final image. Its Trivy checks are scoped to HIGH/CRITICAL findings; that is not an all-severity zero-vulnerability claim.
+The `CI and security` workflow builds the Docker image without publishing it and runs the simulation-only smoke against a loopback-only container constrained to **512 MB RAM and 0.1 CPU**, matching the Free service limits for a startup and one synthetic scenario. A passing smoke is evidence for that bounded workload only; it is not a peak-memory measurement, load test, or guarantee against OOM under larger inputs or concurrent traffic. The workflow also runs frontend/backend checks and dependency/secret scans. Its Trivy checks are scoped to HIGH/CRITICAL findings; that is not an all-severity zero-vulnerability claim.
 
 ## Failure and rollback
 
