@@ -6,6 +6,8 @@ The Operator Dashboard is a locally runnable interface for editing and evaluatin
 
 The simulation is advisory and price-free. It has no database writes, no live NESO input, no charger or hardware connection, no electricity trading, no real-world emissions claim, and no global-optimality guarantee. `complete_schedule_not_demonstrated` means that the selected heuristic did not produce a complete schedule; it is not a proof of infeasibility. The dashboard labels the source as synthetic and keeps the separate read-only NESO endpoint disconnected.
 
+The same simulation-only workflow is available at the [public demo](https://green-energy-dispatch-dashboard.onrender.com). In the Docker deployment, the production-built Vite assets and FastAPI API are served from one origin. The hosted service exposes only the synthetic evaluation route under `/api`; it does not enable the separate NESO/PostgreSQL capabilities described elsewhere in the repository. The demo has no user authentication and is not a production operations service.
+
 ## Requirements and startup
 
 - Python 3.12 or newer with the repository runtime requirements installed.
@@ -95,8 +97,10 @@ Captured from the current dispatch workbench, running Vite frontend, and FastAPI
 
 ![Current dispatch workbench after a real synthetic simulation](screenshots/ev-depot-workbench-after-1440x900.png)
 
+This image is an existing local Vite/FastAPI simulation capture, not a capture of the Render demo or a Safari acceptance screenshot. Its provenance and original Chrome/Playwright QA evidence remain in the linked workbench design record; no live Safari screenshots have been captured for this release package.
+
 ## Implemented versus future work
 
-Implemented for local demonstration: scenario form, bounded local JSON import/export, synthetic input provenance, real scheduler API integration, result tables/charts, validation/error handling, stale-result prevention, responsive styling, and automated component/E2E checks.
+Implemented: scenario form, bounded local JSON import/export, synthetic input provenance, real scheduler API integration, result tables/charts, validation/error handling, stale-result prevention, responsive styling, automated component/E2E checks, and a limited simulation-only Docker demo serving the built frontend from FastAPI.
 
-Not implemented: live NESO-to-scheduler adapter, cross-origin deployment, user accounts, authentication, production frontend serving/hosting, live hardware control, electricity trading, cost/tariff evaluation, infeasibility proof beyond existing evaluator semantics, or global schedule optimisation.
+Not implemented: live NESO-to-scheduler adapter, cross-origin deployment, user accounts or authentication, production-grade availability/monitoring/backup operations, live hardware control, electricity trading, cost/tariff evaluation, infeasibility proof beyond existing evaluator semantics, or global schedule optimisation. The public demo does not establish Safari visual acceptance or production readiness.

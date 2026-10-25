@@ -1,22 +1,25 @@
 # Green Energy Dispatch Dashboard
 
-A UK grid-aware energy operations platform in active development. The current application includes the read-only NESO Carbon Intensity adapter, a deterministic synthetic EV-depot scheduling simulation, scenario evaluation tools, and a local React operator dashboard. The dashboard sends validated synthetic scenarios to FastAPI and displays results from the existing Python scheduler; it does not control physical assets or make market decisions.
+> **Live demo:** [Green Energy Dispatch](https://green-energy-dispatch-dashboard.onrender.com) — a public, synthetic-only EV-depot scheduling demonstration.
 
-> **Safety boundary:** no market, balancing mechanism, or physical device is connected. The service never places trades or issues control commands. Carbon thresholds are illustrative only and not operational guidance.
+Green Energy Dispatch is a UK grid-aware energy operations **portfolio prototype**. The hosted demo serves a production-built React/Vite dashboard and FastAPI from one origin. Visitors can edit a synthetic depot scenario and compare Python-computed schedules. No live NESO signal feeds this scheduler.
+
+> **Safety boundary:** the demo is advisory and price-free. It is not connected to an electricity market, balancing mechanism, charger, or other physical asset; it never places trades or issues control commands. Carbon-proxy values are scenario calculations, not measured or verified emissions reductions.
 
 ## Current capabilities
 
-- `GET /health` — single service health endpoint.
-- `GET /api/v1/energy/carbon-intensity` — live NESO regional intensity reading; returns actual when available, otherwise explicitly marks forecast. Stale, malformed, or unavailable upstream data fails closed with HTTP 503; no fabricated fallback is used.
-- `POST /api/v1/energy/carbon-gate` — transparent simulated `allow`, `defer`, or `block` recommendation based on an explicitly illustrative policy.
-- `POST /api/v1/simulations/ev-depot/evaluate` — stateless, synthetic-only comparison of the existing **Immediate Baseline** and **Carbon-Aware Heuristic** Python strategies; no database or upstream data calls.
-- React/TypeScript operator dashboard — local scenario editing, JSON import/export, real API evaluation, accessible schedule/load/intensity charts, validation feedback, and equal-service proxy explanations.
-- Pydantic validation rejects negative, non-finite, malformed, and unexpected request fields.
-- Production defaults disable debug mode and interactive OpenAPI docs.
+- `GET /health` — application health response.
+- `POST /api/v1/simulations/ev-depot/evaluate` — stateless synthetic evaluation of the existing **Immediate Baseline** and **Carbon-Aware Heuristic**, with input provenance and equal-service comparison eligibility.
+- React/TypeScript operator dashboard — scenario editing, bounded JSON import/export, API-backed results, schedule/load/intensity visualisations, validation feedback, and text/table alternatives.
+- In the public simulation-only mode, other `/api/*` routes and interactive API documentation are disabled. The public smoke test verified the documented NESO routes and docs paths return 404.
+- The broader repository also contains a separate read-only NESO adapter, optional PostgreSQL evidence storage/replay, and an opt-in collector. These are local/optional capabilities; they are not inputs to the hosted scheduler, and the public demo does not persist submitted scenarios.
+- No user authentication or authorisation is implemented. Do not submit personal, operational, or confidential data.
 
 ## Architecture and roadmap
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for system boundaries, current implementation status, data provenance, security assumptions, and staged product roadmap. See [`docs/SECURITY.md`](docs/SECURITY.md) for container scan evidence and policy. Optional PostgreSQL storage of NESO source evidence and normalised observations, one-shot ingestion, offline replay, an opt-in standalone regional collector, historical dataset export, and simple chronological forecast baselines are implemented. Follow [`docs/DATABASE_AND_REPLAY.md`](docs/DATABASE_AND_REPLAY.md) for database setup and [`docs/NESO_HISTORICAL_ACQUISITION.md`](docs/NESO_HISTORICAL_ACQUISITION.md) for the official regional forecast archive contract and controlled acquisition workflow. The synthetic scheduling/evaluation workflow and local React operator dashboard are implemented; cloud hosting, live asset control, electricity-market participation, and production operations are not.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system diagram, component boundaries, deployment evidence, and roadmap. [`docs/OPERATOR_DASHBOARD.md`](docs/OPERATOR_DASHBOARD.md) explains the scenario workflow and result interpretation; [`docs/EV_DEPOT_SIMULATION.md`](docs/EV_DEPOT_SIMULATION.md) documents the scheduler and proxy semantics. The optional local persistence and replay workflow is covered by [`docs/DATABASE_AND_REPLAY.md`](docs/DATABASE_AND_REPLAY.md), and the forecast archive boundary by [`docs/NESO_HISTORICAL_ACQUISITION.md`](docs/NESO_HISTORICAL_ACQUISITION.md). The local NESO/PostgreSQL capabilities and the public demo are deliberately described separately. Production operations—including an availability target, monitoring, alerting, backups, and live asset or market integration—are not established by this portfolio demo.
+
+The v0.1.0 release notes are prepared in [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md), with the technical case study at [`docs/case-studies/green-energy-dispatch-v0.1.0.md`](docs/case-studies/green-energy-dispatch-v0.1.0.md). These documents are not a published GitHub Release.
 
 ## Quick start
 
@@ -26,11 +29,10 @@ cd green-energy-dispatch-dashboard
 python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
-cp .env.example .env
-python -m uvicorn app.main:app
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Defaults are production-safe (`APP_ENV=production`, `DEBUG=false`); `/docs`, `/redoc`, and `/openapi.json` are disabled. For trusted local development only, set `APP_ENV=development` and `DEBUG=true` in `.env`.
+This starts the API only. The synthetic dashboard needs no `.env`, database, cloud credentials, or NESO access. Defaults are conservative (`APP_ENV=production`, `DEBUG=false`); `/docs`, `/redoc`, and `/openapi.json` are disabled. Enable debug documentation only in a trusted local development environment, never in the public demo.
 
 ## Local operator dashboard
 
@@ -50,25 +52,36 @@ npm ci
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite proxies `/api` and `/health` to `http://127.0.0.1:8000`; browser requests remain same-origin, so the API does not enable permissive CORS. Load the synthetic example, edit the vehicle energy requirement and carbon profile, run the simulation, inspect both returned schedules and export the scenario JSON. The dashboard does not call the NESO endpoint. See [`docs/OPERATOR_DASHBOARD.md`](docs/OPERATOR_DASHBOARD.md) for the operator guide, result interpretation, API contract, and implemented/future boundaries.
+Open <http://127.0.0.1:5173>. Vite proxies `/api` and `/health` to `http://127.0.0.1:8000`; requests stay same-origin without permissive CORS. Load the synthetic example, edit the vehicle energy requirement or carbon profile, run the simulation, inspect both returned schedules, and export the scenario JSON. The dashboard does not call the NESO endpoint. See [`docs/OPERATOR_DASHBOARD.md`](docs/OPERATOR_DASHBOARD.md) for the operator guide, API contract, and implementation boundaries.
 
 See [`docs/design/ev-depot-dispatch-workbench.md`](docs/design/ev-depot-dispatch-workbench.md) for the current visual architecture, selected design reference, screenshots, local QA evidence, and release limitations.
 
 The API base is same-origin by default (`VITE_API_BASE_URL` is empty). Only set it to a same-origin API prefix when changing the local proxy configuration; cross-origin access is intentionally not enabled.
 
-Frontend checks, build, and real FastAPI/browser integration test:
+## Verified test and CI evidence
+
+Post-merge GitHub Actions run [40193307594](https://github.com/vlad12-k/green-energy-dispatch-dashboard/actions/runs/40193307594) passed all four jobs on application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659`:
+
+- `quality` — Python 3.12, PostgreSQL 17 test service, Ruff, dependency audit, Alembic checks, and the backend test suite with an 85% coverage gate.
+- `frontend-quality` — Node.js 22, npm audit at HIGH, lint, type-check, unit tests, production build, and Playwright end-to-end tests. The workflow's browser automation uses Chromium; this is not Safari visual acceptance.
+- `container` — Docker build, constrained simulation-only container smoke (512 MB RAM, 0.1 CPU), and Trivy checks scoped to CRITICAL/HIGH vulnerabilities. This is not an all-severity zero-vulnerability claim or a load test.
+- `secret-scan` — Gitleaks action with full Git history available.
+
+The requested live smoke was also run from a clean detached checkout at that same source SHA using Python 3.14.9:
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
-npm run build
-npm run test:e2e
+python scripts/smoke_staging.py --base-url https://green-energy-dispatch-dashboard.onrender.com
 ```
 
-The production build regenerates TypeScript API types from FastAPI OpenAPI and writes static assets to `frontend/dist`. The API remains independently runnable; this milestone does not configure production hosting or serve the built frontend from FastAPI.
+It exited `0`: health was `ok`; the root and a deep SPA route returned the built app; three same-origin assets were served; the synthetic evaluation was comparison-eligible; and the tested live-data/docs routes were unavailable. The response values for that synthetic scenario were 2,875 baseline and 950 carbon-aware proxy units, a 1,925 `gCO2`-proxy-unit difference. Provenance remained `synthetic_scenario` / `simulation-only`, and the response explicitly made no real-world emissions claim. These are deterministic scenario proxies, not measured carbon savings.
 
-Fetch the configured GB region (default NESO region ID 13):
+Owner-provided Render logs report a Live service checked out from `main`. The exact active deployment SHA, current Compute Plan, and Auto-Deploy setting have not been independently read back from the Render Dashboard. The smoke test proves the endpoint response, not the provider-side deployed revision or service configuration. See [`docs/deployment/staging-runbook.md`](docs/deployment/staging-runbook.md) for the safe verification and manual-deployment boundary.
+
+The Docker build produces `frontend/dist` and the FastAPI application serves the built frontend when `SERVE_FRONTEND=true`; the public demo therefore uses one origin. In local development, Vite remains a separate server and proxies API requests. TypeScript API types are generated from FastAPI's OpenAPI model during the frontend build; interactive docs remain disabled in simulation-only runtime mode.
+
+## Separate local NESO adapter
+
+The full local application also provides a read-only NESO route (default GB region ID 13). It is not part of the public simulation-only API and is not connected to the EV-depot scheduler. To exercise it locally:
 
 ```bash
 curl http://127.0.0.1:8000/api/v1/energy/carbon-intensity
@@ -78,7 +91,7 @@ Configure `NESO_REGION_ID`, `NESO_MAX_AGE_SECONDS`, and `NESO_TIMEOUT_SECONDS` a
 
 ## Scheduled NESO collection (opt-in)
 
-The standalone worker is disabled by default and is not started by FastAPI. It polls one configured region every 30 minutes by default, records each HTTP attempt and collection outcome in PostgreSQL, and exposes its persisted status as JSON. The NESO regional endpoint returns a limited latest response, so repeated polling is **not** a complete historical time series; detected interval gaps are reported, never filled with fabricated observations.
+The standalone worker is an optional local capability, disabled by default and not started by FastAPI. It polls one configured region every 30 minutes by default, records each HTTP attempt and collection outcome in PostgreSQL, and exposes its persisted status as JSON. It is not part of the public demo. The NESO regional endpoint returns a limited latest response, so repeated polling is **not** a complete historical time series; detected interval gaps are reported, never filled with fabricated observations.
 
 For a local demonstration, copy `.env.example` to `.env`, set a unique local `POSTGRES_PASSWORD`, and set `DATABASE_URL` to the Compose address `postgresql+psycopg://ged:<URL-encoded-password>@db:5432/ged`. Start PostgreSQL, apply the reviewed migration explicitly, then start the collector:
 
@@ -93,7 +106,7 @@ docker compose -f docker-compose.yml -f docker-compose.database.yml --profile co
 
 Configure `COLLECTOR_INTERVAL_SECONDS` (minimum 60; default 1800), `COLLECTOR_MAX_ATTEMPTS` (default 3, including the initial request), `COLLECTOR_BACKOFF_BASE_SECONDS` (default 5), and `COLLECTOR_BACKOFF_MAX_SECONDS` (default 60) in `.env` as needed. Transient network errors, HTTP 429, and 5xx responses may be retried. `Retry-After` is honoured for in-cycle retries; if its deadline exceeds the per-cycle backoff cap, later polling remains paused until that deadline, including after a worker restart. Validation and database failures are not retried. See the database guide for status fields, recovery behaviour, and limitations. PostgreSQL remains loopback-only; the worker inherits the non-root, read-only, capability-dropped container hardening.
 
-## Development checks
+## Backend, database, and security development checks
 
 ```bash
 python -m pip install -r requirements-dev.txt
@@ -101,6 +114,8 @@ python -m pytest -q --cov=app --cov-fail-under=85
 ruff check .
 pip-audit -r requirements-dev.txt
 ```
+
+The full backend suite requires an explicitly isolated disposable PostgreSQL test database, as in CI; never point integration tests at a shared or live database. Run frontend checks from `frontend/` with the scripts listed in [`docs/OPERATOR_DASHBOARD.md`](docs/OPERATOR_DASHBOARD.md).
 
 Docker Compose builds and runs the API as a non-root user:
 
