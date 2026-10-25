@@ -98,6 +98,36 @@ jobs:
           push: false
           load: true
           tags: green-energy-dispatch-dashboard:ci
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Smoke-test the built simulation-only container
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_name="ged-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() { docker rm --force "$container_name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run --detach --name "$container_name" \
+            --memory 512m \
+            --memory-swap 512m \
+            --cpus 0.1 \
+            --publish 127.0.0.1:18000:10000 \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --env APP_ENV=production \
+            --env DEBUG=false \
+            --env HOST=0.0.0.0 \
+            --env PORT=10000 \
+            --env SIMULATION_ONLY_MODE=true \
+            --env SERVE_FRONTEND=true \
+            --env MAX_REQUEST_BODY_BYTES=65536 \
+            --env API_RATE_LIMIT_REQUESTS_PER_MINUTE=60 \
+            --env COLLECTOR_ENABLED=false \
+            green-energy-dispatch-dashboard:ci
+          python scripts/smoke_staging.py --base-url http://127.0.0.1:18000
       # Report all HIGH/CRITICAL base and application findings; gate fixed ones below.
       - uses: aquasecurity/trivy-action@v0.36.0
         with:
