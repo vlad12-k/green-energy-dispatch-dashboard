@@ -4,7 +4,7 @@
 
 **Evidence checkpoint:** application source commit `55ae4f274848ac3642e1e0bf804feba7f07b8659`
 
-**Status:** portfolio case study prepared for review; no GitHub Release or tag has been published.
+**Status:** portfolio case study for the v0.1.0 release; publication status is tracked by GitHub, not asserted here.
 
 ## Problem and constraints
 
@@ -65,7 +65,7 @@ Post-merge GitHub Actions run [40193307594](https://github.com/vlad12-k/green-en
 
 Separately, `python scripts/smoke_staging.py --base-url https://green-energy-dispatch-dashboard.onrender.com` exited `0` from a clean detached checkout at the source commit listed above. It checked health, the built app/assets and SPA fallback, a synthetic evaluation, provenance/no-real-world-claim flags, and 404 responses for selected live-energy and docs routes. This is an HTTP smoke, not a load test or a browser acceptance test.
 
-Owner-provided Render logs report a Live service checked out from `main`, a successful Docker build/startup, and HTTP 200 for `/health` and `GET /`. The supplied evidence does not identify the active deployed SHA. The existing service's Compute Plan and Auto-Deploy setting have not been independently verified in the provider Dashboard. The checked-in `render.yaml` is a Free/manual target descriptor for a differently named service; it is not provider-state evidence and must not be synced to create another resource.
+Owner-provided Render logs explicitly record checkout of application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main`, a successful Docker build/startup, HTTP 200 for `/health` and `GET /`, and Live status. This is evidence of the logged deployment event, not an independent readback of the current active Dashboard SHA or proof that no later deploy occurred. The current Compute Plan and Auto-Deploy setting have not been confirmed. The checked-in `render.yaml` is a Free/manual target descriptor for a differently named service; it is not provider-state evidence and must not be synced to create another resource.
 
 ## Engineering trade-offs and limitations
 
@@ -73,10 +73,10 @@ Owner-provided Render logs report a Live service checked out from `main`, a succ
 - **Stateless synthetic evaluator:** keeps the public path small, reproducible, and free of persistence/upstream dependencies; it cannot demonstrate historical-data-driven operation or retain user work.
 - **Bounded heuristic:** preserves deterministic service-first behaviour and offers an explainable carbon-proxy comparison without claiming global optimality; it may miss better schedules.
 - **Public unauthenticated demo:** lowers visitor friction but is unsuitable for private data and relies on bounded request handling, not identity-based access control.
-- **Render Free target:** can have cold starts, ephemeral local storage, shared quotas, and no demonstrated SLA. Current plan, deployed SHA, and Auto-Deploy settings need Dashboard verification. No load, sustained concurrency, or peak-memory test has been run against the public service.
+- **Render plan and capacity:** the owner-provided log records deployment of `55ae4f274848ac3642e1e0bf804feba7f07b8659`; current Dashboard SHA, plan, and Auto-Deploy still need independent confirmation. If the service is on a Free plan, cold starts, ephemeral storage, and shared quotas may constrain availability. No load, sustained concurrency, or peak-memory test has been run against the public service.
 - **Evidence limits:** no complete Safari desktop/mobile acceptance, screen-reader audit, or independent all-severity vulnerability scan of a future release artifact is claimed.
 
-No user adoption, customer results, commercial impact, actual carbon savings, or ML-model performance is claimed.
+No user adoption, customer results, commercial impact, actual carbon savings, or ML-model performance is claimed. Real NESO data and forecast-backed scheduling are planned for v0.2.0 on a separate branch from the final v0.1.0 release main; they are not included here.
 
 ## Visual evidence plan (not yet captured)
 
@@ -93,4 +93,4 @@ For each capture, record the exact URL, date, Safari version, viewport, and whet
 
 ## Next approval
 
-Review the documentation-only Draft PR. Before publishing v0.1.0, the owner must verify the existing service's active SHA, Free plan, and Auto-Deploy setting; complete Safari desktop/mobile acceptance and approve any new live screenshots; then explicitly approve creating the `v0.1.0` tag and publishing a GitHub Release. No merge, tag, release, Render setting change, or deployment is authorised by this case study.
+Before publishing v0.1.0, independently verify the existing service's current SHA, Free plan, and Auto-Deploy setting; complete Safari desktop/mobile acceptance and approve any new live screenshots; review the documentation change after its own required GitHub Actions checks pass; then explicitly approve release publication. This case study does not assert the current GitHub PR, tag, or release state and does not authorise a merge, Render setting change, or deployment.

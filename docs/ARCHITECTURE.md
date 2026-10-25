@@ -6,7 +6,7 @@ Green Energy Dispatch is a UK energy-software **portfolio prototype**, not an op
 
 The public demo at <https://green-energy-dispatch-dashboard.onrender.com> is narrower: a Docker-built React/Vite frontend and FastAPI are served from one origin. Its simulation-only boundary accepts a bounded synthetic evaluation; it does not feed NESO data into the scheduler, persist submitted scenarios, control a charger, or make market decisions. Synthetic carbon proxies are not measurements or verified emissions outcomes.
 
-Owner-provided Render logs report that the existing service is Live and checked out from `main`. The exact deployed SHA, current Compute Plan, and Auto-Deploy state have not been independently read back from the provider dashboard. The diagram and repository configuration describe intended application topology, not proof of those account-side settings.
+The owner-provided deployment log explicitly records that the existing service checked out application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main` and reached Live status. This records the deployment event; it is not an independent readback of the service's current Dashboard state. The current Compute Plan and Auto-Deploy state remain unconfirmed. The diagram and repository configuration describe application topology, not proof of provider-side settings.
 
 ## System context
 
@@ -55,14 +55,14 @@ The Docker build compiles the Vite application and copies `frontend/dist` into t
 | PostgreSQL evidence store and replay | Immutable source evidence, normalised observations, explicit migrations, one-shot ingestion and offline replay | Implemented as optional local components; not provisioned for the public simulation demo. |
 | NESO collector | Standalone opt-in polling, bounded retries, persisted run/attempt status, gap reporting and graceful stop | Implemented for local use; separate process, not a production scheduler and not part of the public demo. |
 | Historical datasets and baselines | Deterministic exports and chronological persistence/seasonal-naive evaluation | Framework implemented; the previously inspected project database had no observations, so no genuine historical forecast evaluation is claimed. |
-| Existing Render demo | Single-origin Docker service at the public URL | Owner logs report Live/from `main`; exact active SHA, Compute Plan and Auto-Deploy state remain provider-verification items. |
+| Existing Render demo | Single-origin Docker service at the public URL | Owner-provided deployment log records commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main` and Live status; current Dashboard readback, Compute Plan and Auto-Deploy remain unverified. |
 | Production operations and actuation | SLOs, alerting, backups, live assets, market interaction | Not implemented. |
 
 ## Public deployment and operational limits
 
 The public demo is a portfolio deployment, not production service evidence. Its checked-in `render.yaml` describes a Free-plan Docker service named `green-energy-dispatch-staging`, with `branch: main` and `autoDeployTrigger: "off"`. The existing dashboard service is named `green-energy-dispatch-dashboard`; the YAML does not verify or control that service's current settings. Do not sync the differently named Blueprint as part of release packaging: it could propose a separate resource. Provider settings must be read from the existing service's Dashboard.
 
-The current smoke confirms the public endpoint responds, but not which SHA is running. Before stating the live SHA, Free plan, or Auto-Deploy state as verified, read those values from the existing Render service. The intended Free tier is subject to cold starts, ephemeral filesystem behaviour, workspace quotas and provider-term changes; check current account usage and terms before making availability or cost claims. The 512 MB / 0.1 CPU CI container smoke is a bounded startup-and-one-scenario check, not a load or peak-memory test.
+The smoke confirms that the public endpoint responds, but does not identify its serving SHA. The owner-provided deployment log records the deployment source as commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main`; independently confirm the currently active SHA in the existing Render Dashboard before describing it as current state. The live Compute Plan and Auto-Deploy setting have not been confirmed. If the existing service uses the intended Free tier, cold starts, ephemeral filesystem behaviour, workspace quotas and provider-term changes may constrain availability; check current account usage and terms before making cost or uptime claims. The 512 MB / 0.1 CPU CI container smoke is a bounded startup-and-one-scenario check, not a load or peak-memory test.
 
 ## Scheduled data operations
 
@@ -138,14 +138,14 @@ The operator dashboard is a focused React/TypeScript application built by Vite. 
 3. **Forecasting (partially implemented):** a provenance-aware dataset and chronological persistence/seasonal-naive evaluation framework are available; meaningful real-data evaluation, further error/calibration evidence, model cards and monitored inference remain future work. Add neural models only when measured baselines justify them.
 4. **EV-depot simulation (implemented):** reuse the existing baseline and bounded carbon-aware heuristic for explicitly synthetic, price-free scenarios; the heuristic is not a global optimizer and failure is not an infeasibility proof.
 5. **Operator dashboard (implemented locally and hosted as a limited demo):** React/TypeScript edits synthetic inputs, calls the FastAPI simulation endpoint, and visualises validated Python results. NESO data is deliberately not connected to this scheduler. Hosting does not imply production operations or support.
-6. **Future product work:** any time-valid external-source adapter, live asset integration, or operational recommendation requires separate requirements, provenance, safety, security, and review.
+6. **Next planned milestone:** v0.2.0 is planned for a separate branch from the final v0.1.0 release main and will introduce real NESO data and forecast-backed scheduling. That scope is not included in this synthetic-only demo and requires separate provenance, safety, security, and review.
 7. **Production readiness:** a limited public demo exists, but production SLOs, alerting, backups, high availability, operational access control, and production security review remain future work.
 
 ## Release acceptance evidence
 
 - Post-merge Actions run [40193307594](https://github.com/vlad12-k/green-energy-dispatch-dashboard/actions/runs/40193307594) passed `quality`, `frontend-quality`, `container`, and `secret-scan` on application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659`. See [the workflow](../.github/workflows/ci.yml) for exact gates; Trivy coverage is CRITICAL/HIGH, not all severities.
 - The bounded live smoke command `python scripts/smoke_staging.py --base-url https://green-energy-dispatch-dashboard.onrender.com` exited `0` from a clean detached checkout at that source SHA. It verified health, built assets/history fallback, one synthetic evaluation, provenance/claim flags, and selected disabled routes.
-- Owner-provided Render logs report a Live service checked out from `main`; the supplied excerpt does not give the exact deployed SHA. Current Compute Plan and Auto-Deploy are not independently verified. Do not infer either from `render.yaml`.
+- The owner-provided deployment log explicitly records checkout of `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main` and Live status. This is log evidence, not an independent readback of the current active Dashboard state. The current Compute Plan and Auto-Deploy remain unverified; do not infer them from `render.yaml`.
 - The earlier dashboard screenshots and local visual QA remain explicitly local Chrome/Playwright evidence. Safari desktop/mobile acceptance is still required before claiming Safari compatibility or using new captures as live evidence.
 
 A completed release stage should retain automated test output, a reproducible synthetic example, exact commit-bound CI evidence, provider-side deployment metadata, and visual evidence with its browser/viewport provenance. Do not turn implementation documents or screenshots from another environment into live acceptance claims.

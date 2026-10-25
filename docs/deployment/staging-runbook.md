@@ -1,6 +1,6 @@
 # Staging deployment runbook
 
-**Status:** an existing public Render service is reported Live by owner-provided logs. The supplied logs report checkout from `main`, but do not establish the exact deployed SHA, current Compute Plan, or Auto-Deploy setting; verify those in the existing service's Dashboard before making release claims. This runbook does not authorise a new resource, setting change, or deployment. The original candidate added configuration/code only; it did not provision a service.
+**Status:** the owner-provided deployment log explicitly records that the existing public Render service checked out application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main` and reached Live status. This establishes the logged deployment revision, not an independent readback of the currently active Dashboard state. The current Compute Plan and Auto-Deploy setting remain unconfirmed. This runbook does not authorise a new resource, setting change, or deployment. The original candidate added configuration/code only; it did not provision a service.
 
 ## Decision and topology
 
@@ -60,14 +60,14 @@ References (provider documentation reviewed for this candidate; re-check for cur
 
 Before any separately approved service update (no such update is part of this release):
 
-1. Verify that the target is the existing `green-energy-dispatch-dashboard` service. Confirm its active SHA, Compute Plan, Auto-Deploy setting, workspace usage, and current provider limits. Do not change billing, add a payment method, or alter plan settings.
+1. Verify that the target is the existing `green-energy-dispatch-dashboard` service. Compare its current active SHA with the owner-provided log record (`55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main`); confirm the Compute Plan, Auto-Deploy setting, workspace usage, and current provider limits. Do not change billing, add a payment method, or alter plan settings.
 2. Inspect any linked Blueprint and Auto Sync state. Do not connect or sync `render.yaml` as part of this work; it names a different service. If any setting differs from the approved release intent, stop and ask the owner rather than changing it.
 
 For a future deployment, only after separate explicit owner approval:
 
 1. Open the existing service directly; do not use **New → Blueprint** or create a second resource. Verify its repository, branch, plan, Auto-Deploy and deployment source before making any change.
 2. If an approved manual deploy is authorised, confirm `main` still points to the reviewed commit. The service supplies `PORT` (default 10000); do not replace it with a fixed port. The application reads `PORT` at startup and binds to `0.0.0.0`.
-3. Wait for the deployment and `/health` check, then read the deployed SHA from the provider Dashboard. Allow for Free-tier cold starts; inspect logs without copying secrets into tickets or chat.
+3. Wait for the deployment and `/health` check, then read the deployed SHA from the provider Dashboard. If the service is on a Free plan, allow for cold starts; inspect logs without copying secrets into tickets or chat.
 4. From a checkout containing the matching `examples/carbon_aware_ev_depot_demo.json`, run:
 
    ```bash
