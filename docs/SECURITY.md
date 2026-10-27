@@ -33,25 +33,30 @@ The built image was run as UID/GID 10001. Its `/health` endpoint returned HTTP 2
 
 The final Alpine scan found no vulnerability findings at any severity in OS or Python packages. This is scan evidence for the tested images and database snapshot, not a guarantee that the images have no vulnerabilities or that future database updates will remain clean. Rebuild and rescan images regularly; retain both CI Trivy steps and review new findings rather than suppressing them. Both ARM64 and `linux/amd64` builds were checked locally; CI provides the repository's independent build and security gate.
 
-## Operator dashboard prototype
+## Public simulation-only dashboard
 
-The React/Vite dashboard is a local-development client, not a production security boundary.
+The React/Vite dashboard is served by FastAPI as a limited public portfolio demo. It is not an authentication boundary or a production operations service.
 
-- Vite binds to `127.0.0.1` and proxies `/api` and `/health` to `127.0.0.1:8000`. FastAPI has no permissive CORS policy added for this feature. Cross-origin deployment is unsupported; do not add wildcard origins.
-- The API simulation endpoint is stateless, synthetic-only and bounded to 96 intervals and 50 vehicles. It does not call NESO, read/write PostgreSQL, or start background work.
-- There is no user authentication or authorisation system. Keep both development servers on loopback and do not expose them to untrusted networks.
-- The browser imports only user-selected JSON files (bounded to 256 KiB in the UI) and exports scenario inputs as a local download. It does not persist scenarios or transmit them to external services.
+- Local development uses Vite bound to `127.0.0.1`, proxying `/api` and `/health` to loopback FastAPI. The Docker demo instead serves the production Vite build and API from one origin. Neither mode requires permissive CORS; cross-origin deployment is unsupported.
+- In simulation-only mode, the public API allowlists only `POST /api/v1/simulations/ev-depot/evaluate`, limits request bodies to 65,536 bytes, and applies a 60-request rolling limit per process. The in-memory limit is shared by that process, not per-IP, is not coordinated across replicas, and resets on restart.
+- The simulation endpoint is stateless, synthetic-only, and bounded to 96 intervals and 50 vehicles. It does not call NESO, read/write PostgreSQL, or start background work. The documented public smoke test verified that selected live-energy and interactive-doc routes are unavailable.
+- There is no user authentication or authorisation system. The public demo is open to visitors; do not submit personal, operational, or confidential data.
+- The browser imports only user-selected JSON files (bounded to 256 KiB in the UI) and exports scenario inputs as a local download. Submitted scenarios are not persisted by the evaluator or transmitted to unrelated services.
 - Server validation details are mapped to form fields; non-validation server failures are displayed generically rather than exposing exception text.
-- npm dependencies are pinned by the frontend lockfile. CI runs `npm audit`; update dependencies deliberately and review lockfile changes. The production build is not deployed or served by FastAPI in this milestone.
+- npm dependencies are pinned by the frontend lockfile. CI runs `npm audit`; update dependencies deliberately and review lockfile changes. The deployed dashboard is simulation-only and does not imply production-grade access control, availability, monitoring, or incident response.
 
 ## Other checks
 
 The existing CI also runs `pip-audit` against declared runtime and development dependencies and Gitleaks against repository history and the working tree. Results are per-run evidence and should not be inferred from this local container scan.
 
-## Release-candidate preflight — 2026-10-22
+Post-merge Actions run [40193307594](https://github.com/vlad12-k/green-energy-dispatch-dashboard/actions/runs/40193307594) passed `quality`, `frontend-quality`, `container`, and `secret-scan` on source commit `55ae4f274848ac3642e1e0bf804feba7f07b8659`. The workflow's Trivy checks cover CRITICAL/HIGH findings; a passing run is not evidence of zero findings at every severity. The older scan tables and candidate preflight below are historical evidence for their stated image/database snapshots, not a new scan of a future image.
+
+## Historical release-candidate preflight — 2026-10-22
+
+The following notes describe the pre-merge candidate state on 2026-10-22. They are retained as engineering history and are not substituted for the post-merge Actions run above or a future release-image scan.
 
 - `npm audit --json` (all frontend dependencies) and `npm audit --omit=dev --json` (production dependencies) both reported zero vulnerabilities at every severity. `npm ls --depth=0` found no missing direct dependencies.
 - `pip-audit --strict` reported no known vulnerabilities in 30 runtime requirements or 38 combined runtime/development requirements; `pip check` reported no broken requirements. The audit emitted warnings that invalid local HTTP-cache entries were ignored, then completed successfully with no known vulnerabilities.
 - Gitleaks scanned the changed frontend source, E2E, public assets, HTML entry point, README, operator guide and design documents; it reported no leaks. This scoped local scan did not inspect `.env` files or claim to scan repository history.
-- GitHub Actions run [39421372814](https://github.com/vlad12-k/green-energy-dispatch-dashboard/actions/runs/39421372814) succeeded on 2026-10-20 for the already-merged PR head `8d336fb`. Its newly built Alpine 3.24.2 image reported zero OS and Python-package vulnerabilities. That run predates this uncommitted frontend/documentation candidate; the current diff does not change the Dockerfile or dependency manifests.
+- GitHub Actions run [39421372814](https://github.com/vlad12-k/green-energy-dispatch-dashboard/actions/runs/39421372814) succeeded on 2026-10-20 for the then-merged PR head `8d336fb`. Its newly built Alpine 3.24.2 image reported zero OS and Python-package vulnerabilities. That run predates the later deployment candidate and is not evidence for the image at `55ae4f2`.
 - A fresh local Trivy scan of `green-energy-dispatch-dashboard:ci` did not complete before the tool timeout. The local Trivy database was last updated on 2026-10-17, so that interrupted attempt is not treated as a clean scan. Rebuild and rescan the image in CI for the follow-up release commit before deployment.

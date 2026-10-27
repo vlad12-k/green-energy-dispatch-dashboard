@@ -2,43 +2,67 @@
 
 ## Product boundary
 
-Green Energy Dispatch is an **intelligent energy operations platform** under staged development. The delivered software includes a read-only NESO Carbon Intensity adapter, existing deterministic EV-depot scheduling strategies, a synthetic scenario evaluator, and a local operator dashboard that submits scenarios to FastAPI and displays Python-computed results. It is not connected to an electricity market, balancing mechanism, or physical asset; it never places trades or issues control commands. Synthetic scenario values are not live observations or verified emissions outcomes.
+Green Energy Dispatch is a UK energy-software **portfolio prototype**, not an operational dispatch platform. The repository contains a read-only NESO Carbon Intensity adapter, optional PostgreSQL evidence storage and collector, deterministic EV-depot scheduling strategies, synthetic evaluation tools, and a React operator dashboard.
+
+The public demo at <https://green-energy-dispatch-dashboard.onrender.com> is narrower: a Docker-built React/Vite frontend and FastAPI are served from one origin. Its simulation-only boundary accepts a bounded synthetic evaluation; it does not feed NESO data into the scheduler, persist submitted scenarios, control a charger, or make market decisions. Synthetic carbon proxies are not measurements or verified emissions outcomes.
+
+The owner-provided deployment log explicitly records that the existing service checked out application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main` and reached Live status. This records the deployment event; it is not an independent readback of the service's current Dashboard state. The current Compute Plan and Auto-Deploy state remain unconfirmed. The diagram and repository configuration describe application topology, not proof of provider-side settings.
 
 ## System context
 
-```text
-                         ┌── FastAPI read-only adapter ──> API clients
-NESO Carbon Intensity ───┤
-API (HTTPS, read-only)   └── standalone opt-in collector ──> existing parser / persistence
-                                                               │
-                               optional PostgreSQL evidence store ◄┘
+```mermaid
+flowchart TB
+  subgraph Demo["Existing public simulation-only demo"]
+    Browser["Browser: React and Vite production build"]
+    Service["Existing Render Docker web service<br/>one public origin"]
+    API["FastAPI serves index.html, assets and SPA fallback"]
+    Guard["PublicDemoGuardMiddleware<br/>route, method, body-size and rate limits"]
+    Schema["Pydantic scenario validation<br/>synthetic provenance required"]
+    Baseline["Immediate Baseline"]
+    Heuristic["Carbon-Aware Heuristic<br/>EDF seed plus bounded shifts"]
+    Compare["Equal-service comparison<br/>proxy values and provenance"]
+    Browser -->|"same-origin requests"| Service
+    Service -->|"static UI / SPA fallback"| API
+    Service -->|"POST /api/v1/simulations/ev-depot/evaluate"| Guard
+    Guard --> Schema
+    Schema --> Baseline
+    Schema --> Heuristic
+    Baseline --> Compare
+    Heuristic --> Compare
+    Compare --> Browser
+  end
 
-React + TypeScript operator UI (local Vite dev server)
-        │ same-origin /api proxy
-        ▼
-FastAPI simulation endpoint ──> existing Python EV-depot scheduler
-        │                              │
-        └──── validated result ◄───────┘
-
-Future: live asset integration, production hosting and operations (separate review)
+  subgraph Local["Separate repository capabilities; not connected to the public scheduler"]
+    NESO["NESO Carbon Intensity API<br/>read-only HTTPS"] --> Adapter["Local FastAPI adapter"]
+    Adapter --> Clients["Local API clients"]
+    NESO --> Collector["Optional standalone collector"]
+    Collector --> Store["Optional PostgreSQL evidence store"]
+  end
 ```
 
-## Implemented now
+The Docker build compiles the Vite application and copies `frontend/dist` into the FastAPI runtime image. With `SERVE_FRONTEND=true`, FastAPI serves the root document, same-origin assets, and the SPA history fallback. The local development topology remains different: Vite runs separately and proxies `/api` and `/health` to a loopback FastAPI server.
 
-| Component | Responsibility | State |
+## Implemented components and deployment status
+
+| Component | Responsibility | Status and boundary |
 |---|---|---|
-| FastAPI | `/health`, `/api/v1/energy/carbon-intensity`, `/api/v1/energy/carbon-gate` | Implemented |
-| NESO adapter | HTTPS regional request, parsing, provenance, freshness, timeouts, upstream error handling | Implemented, read-only |
-| Carbon policy | Transparent simulated `allow`/`defer`/`block` thresholds | Implemented; illustrative only |
-| PostgreSQL evidence store | Immutable raw NESO JSON evidence, SHA-256, normalised observations, explicit Alembic migrations, one-shot ingestion and offline replay | Implemented as optional foundation |
-| NESO collector | Standalone opt-in regional polling, bounded retries, durable run/attempt status, gap reporting, JSON logs and graceful stop | Implemented for local demonstration; not a production scheduler |
-| Historical datasets and baselines | Deterministic regional CSV/manifest export; chronological persistence and seasonal-naive evaluation with as-of-time checks | Framework implemented; no genuine historical evaluation is currently possible from the inspected project database |
-| EV-depot scheduler | Existing immediate baseline and carbon-aware bounded heuristic | Implemented; synthetic advisory simulation only, no global-optimality claim |
-| Scenario evaluation | Deterministic synthetic scenarios and bounded robustness evaluation | Implemented |
-| Simulation API | `POST /api/v1/simulations/ev-depot/evaluate`, stateless and validated | Implemented; invokes the existing Python scheduler |
-| React operator dashboard | Scenario editor, local JSON import/export, API-backed comparisons and accessible visualisations | Implemented for local demonstration |
-| Live asset control / electricity trading | Physical dispatch or market interaction | Not implemented |
-| Production hosting | Deployment, SLOs, alerting, backups, runbooks | Not implemented |
+| FastAPI health route | `GET /health` | Implemented; reports application health, not the deployed source revision. |
+| Public simulation guard | Exact API route/method allowlist, request-size limit (65,536 bytes), process-local rolling rate limit (60 requests/minute by default) | Implemented for simulation-only mode. The in-memory rate limit is not coordinated across instances and resets on process restart. |
+| Simulation API | `POST /api/v1/simulations/ev-depot/evaluate` | Implemented; stateless, Pydantic-validated, synthetic-only, with no database or upstream calls. |
+| EV-depot strategies | Immediate Baseline and bounded Carbon-Aware Heuristic | Implemented; advisory simulation, not a global optimiser or proof of infeasibility. |
+| React/Vite dashboard | Scenario editing, JSON import/export, API-backed comparisons, charts and accessible tables | Implemented; production build is served by FastAPI in the Docker demo, while local development uses Vite. |
+| NESO adapter | Read-only HTTPS regional request, parsing, provenance, freshness, bounded timeout and upstream error handling | Implemented as a separate local/API capability; not used by the public scheduler. The public smoke test verified the documented live-data routes return 404. |
+| PostgreSQL evidence store and replay | Immutable source evidence, normalised observations, explicit migrations, one-shot ingestion and offline replay | Implemented as optional local components; not provisioned for the public simulation demo. |
+| NESO collector | Standalone opt-in polling, bounded retries, persisted run/attempt status, gap reporting and graceful stop | Implemented for local use; separate process, not a production scheduler and not part of the public demo. |
+| Historical datasets and baselines | Deterministic exports and chronological persistence/seasonal-naive evaluation | Framework implemented; the previously inspected project database had no observations, so no genuine historical forecast evaluation is claimed. |
+| Existing Render demo | Single-origin Docker service at the public URL | Owner-provided deployment log records commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main` and Live status; current Dashboard readback, Compute Plan and Auto-Deploy remain unverified. |
+| Production operations and actuation | SLOs, alerting, backups, live assets, market interaction | Not implemented. |
+
+## Public deployment and operational limits
+
+The public demo is a portfolio deployment, not production service evidence. Its checked-in `render.yaml` describes a Free-plan Docker service named `green-energy-dispatch-staging`, with `branch: main` and `autoDeployTrigger: "off"`. The existing dashboard service is named `green-energy-dispatch-dashboard`; the YAML does not verify or control that service's current settings. Do not sync the differently named Blueprint as part of release packaging: it could propose a separate resource. Provider settings must be read from the existing service's Dashboard.
+
+The smoke confirms that the public endpoint responds, but does not identify its serving SHA. The owner-provided deployment log records the deployment source as commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main`; independently confirm the currently active SHA in the existing Render Dashboard before describing it as current state. The live Compute Plan and Auto-Deploy setting have not been confirmed. If the existing service uses the intended Free tier, cold starts, ephemeral filesystem behaviour, workspace quotas and provider-term changes may constrain availability; check current account usage and terms before making cost or uptime claims. The 512 MB / 0.1 CPU CI container smoke is a bounded startup-and-one-scenario check, not a load or peak-memory test.
 
 ## Scheduled data operations
 
@@ -104,8 +128,8 @@ Establish historical, leakage-safe baselines and operating metrics before compar
 ### Separate recommendation from execution
 The platform can explain a recommendation without having authority to perform a physical or financial action. This boundary remains explicit in APIs and UI.
 
-### Local React client with same-origin development proxy
-The operator dashboard is a focused React/TypeScript application built by Vite. In local development, Vite proxies `/api` to the loopback FastAPI server, avoiding cross-origin browser requests and any need for permissive CORS. The backend remains independently runnable, and the static frontend is not implicitly served by FastAPI. The OpenAPI document is generated from the running application model for strict TypeScript contracts. See [ADR-001](decisions/ADR-001-react-vite-operator-dashboard.md) for alternatives and trade-offs.
+### React/Vite client with same-origin API
+The operator dashboard is a focused React/TypeScript application built by Vite. In local development, Vite proxies `/api` and `/health` to the loopback FastAPI server. In the Docker demo, FastAPI serves the production Vite build and API from the same origin; neither topology requires permissive CORS. OpenAPI-derived TypeScript types are generated during the build. The public simulation-only runtime disables interactive API documentation. See [ADR-001](decisions/ADR-001-react-vite-operator-dashboard.md) for the original local-development alternatives and trade-offs.
 
 ## Staged product roadmap
 
@@ -113,10 +137,15 @@ The operator dashboard is a focused React/TypeScript application built by Vite. 
 2. **Data operations (local collector implemented):** opt-in scheduled polling, bounded retry/backoff, 429 handling, per-attempt status, freshness and interval-gap reporting, and graceful shutdown. Production-grade scheduling, backfill, alerting, retention, and backup/restore remain planned.
 3. **Forecasting (partially implemented):** a provenance-aware dataset and chronological persistence/seasonal-naive evaluation framework are available; meaningful real-data evaluation, further error/calibration evidence, model cards and monitored inference remain future work. Add neural models only when measured baselines justify them.
 4. **EV-depot simulation (implemented):** reuse the existing baseline and bounded carbon-aware heuristic for explicitly synthetic, price-free scenarios; the heuristic is not a global optimizer and failure is not an infeasibility proof.
-5. **Operator dashboard (implemented for local demonstration):** React/TypeScript edits synthetic inputs, calls the versioned FastAPI simulation endpoint, and visualises validated Python results. NESO data is deliberately not connected to this scheduler.
-6. **Future product work:** any time-valid external-source adapter, live asset integration, or operational recommendation requires separate requirements, provenance, safety, security, and review.
-7. **Production readiness:** deployment, SLOs, alerting, backups, runbooks, IaC, and production security review remain future work.
+5. **Operator dashboard (implemented locally and hosted as a limited demo):** React/TypeScript edits synthetic inputs, calls the FastAPI simulation endpoint, and visualises validated Python results. NESO data is deliberately not connected to this scheduler. Hosting does not imply production operations or support.
+6. **Next planned milestone:** v0.2.0 is planned for a separate branch from the final v0.1.0 release main and will introduce real NESO data and forecast-backed scheduling. That scope is not included in this synthetic-only demo and requires separate provenance, safety, security, and review.
+7. **Production readiness:** a limited public demo exists, but production SLOs, alerting, backups, high availability, operational access control, and production security review remain future work.
 
-## Acceptance evidence
+## Release acceptance evidence
 
-A completed stage should ship: automated tests, reproducible sample/replay, architecture decision record for material choices, observed API contract, failure-mode behaviour, security scan output, and documentation that distinguishes implemented functionality from roadmap items.
+- Post-merge Actions run [40193307594](https://github.com/vlad12-k/green-energy-dispatch-dashboard/actions/runs/40193307594) passed `quality`, `frontend-quality`, `container`, and `secret-scan` on application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659`. See [the workflow](../.github/workflows/ci.yml) for exact gates; Trivy coverage is CRITICAL/HIGH, not all severities.
+- The bounded live smoke command `python scripts/smoke_staging.py --base-url https://green-energy-dispatch-dashboard.onrender.com` exited `0` from a clean detached checkout at that source SHA. It verified health, built assets/history fallback, one synthetic evaluation, provenance/claim flags, and selected disabled routes.
+- The owner-provided deployment log explicitly records checkout of `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main` and Live status. This is log evidence, not an independent readback of the current active Dashboard state. The current Compute Plan and Auto-Deploy remain unverified; do not infer them from `render.yaml`.
+- The earlier dashboard screenshots and local visual QA remain explicitly local Chrome/Playwright evidence. Safari desktop/mobile acceptance is still required before claiming Safari compatibility or using new captures as live evidence.
+
+A completed release stage should retain automated test output, a reproducible synthetic example, exact commit-bound CI evidence, provider-side deployment metadata, and visual evidence with its browser/viewport provenance. Do not turn implementation documents or screenshots from another environment into live acceptance claims.
