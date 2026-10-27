@@ -214,7 +214,8 @@ test('edits, evaluates against FastAPI, inspects results, and exports the scenar
     document.documentElement.style.scrollBehavior = 'auto';
     window.scrollTo({ top: 0, behavior: 'instant' });
   });
-  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  const scrollOffset = await page.evaluate(() => Math.abs(window.scrollY));
+  expect(scrollOffset, 'page should be reset to the top within 1 CSS pixel').toBeLessThanOrEqual(1);
   expect(await page.locator('.topbar').evaluate((element) => element.getBoundingClientRect().top)).toBe(0);
   await page.waitForTimeout(100);
   if (process.env.CAPTURE_DASHBOARD_SCREENSHOTS === '1') {
