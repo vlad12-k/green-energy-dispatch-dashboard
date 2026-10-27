@@ -21,6 +21,8 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system diagram, compo
 
 The v0.1.0 release notes are in [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md), with the technical case study at [`docs/case-studies/green-energy-dispatch-v0.1.0.md`](docs/case-studies/green-energy-dispatch-v0.1.0.md). Current release and tag state is tracked on the repository's GitHub Releases and Tags pages, not asserted by these documents.
 
+The public Safari workflow and captures from 2026-10-27 at 1440×900 and 390×844 are documented in [`docs/releases/v0.1.0-safari-acceptance.md`](docs/releases/v0.1.0-safari-acceptance.md). Captures: [desktop inputs](docs/screenshots/release-v0.1.0/safari-live-desktop-inputs-1440x900.png), [desktop results](docs/screenshots/release-v0.1.0/safari-live-desktop-results-1440x900.png), [mobile inputs](docs/screenshots/release-v0.1.0/safari-live-mobile-inputs-390x844.png), and [mobile results](docs/screenshots/release-v0.1.0/safari-live-mobile-results-390x844.png). Desktop mouse activation was owner-verified on 27 October 2026 at 16:58 UK time; visible keyboard focus, mobile mouse interaction, and current Render deployment metadata remain unverified.
+
 ## Quick start
 
 ```bash

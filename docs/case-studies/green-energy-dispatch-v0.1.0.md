@@ -46,7 +46,7 @@ The final bounded live smoke scenario was comparison-eligible and returned a bas
 
 The React dashboard provides a synthetic example, scenario editing, bounded JSON import/export, an explicit run action, and API-backed results. It presents the two schedules, segment allocations, depot load, constraint checks, per-strategy proxies, provenance, and equal-service comparison eligibility. Text and tables complement the visualisations. Editing inputs invalidates or cancels stale in-flight results so an older response cannot replace the current scenario's result.
 
-The implementation and local workflow are described in the [operator guide](../OPERATOR_DASHBOARD.md). Existing images in `docs/screenshots/` are documented local Vite/FastAPI and Chrome/Playwright evidence; they are not captures of the Render service or Safari. The hosted page was reached by the earlier HTTP smoke test, but a full Safari interaction and visual review has not been completed.
+The implementation and local workflow are described in the [operator guide](../OPERATOR_DASHBOARD.md). Existing images in `docs/screenshots/` outside the release-evidence directory are documented local Vite/FastAPI and Chrome/Playwright evidence; they are not captures of the Render service. The public Safari workflow was exercised on 2026-10-27 at 1440×900 and 390×844; see the [acceptance record](../releases/v0.1.0-safari-acceptance.md) and its four linked live captures. Desktop Run Simulation mouse activation was owner-verified on 27 October 2026 at 16:58 UK time; visible focus-indicator state, mobile mouse interaction, current deployed SHA, and provider settings remain unverified.
 
 ## API design and validation
 
@@ -74,23 +74,14 @@ Owner-provided Render logs explicitly record checkout of application commit `55a
 - **Bounded heuristic:** preserves deterministic service-first behaviour and offers an explainable carbon-proxy comparison without claiming global optimality; it may miss better schedules.
 - **Public unauthenticated demo:** lowers visitor friction but is unsuitable for private data and relies on bounded request handling, not identity-based access control.
 - **Render plan and capacity:** the owner-provided log records deployment of `55ae4f274848ac3642e1e0bf804feba7f07b8659`; current Dashboard SHA, plan, and Auto-Deploy still need independent confirmation. If the service is on a Free plan, cold starts, ephemeral storage, and shared quotas may constrain availability. No load, sustained concurrency, or peak-memory test has been run against the public service.
-- **Evidence limits:** no complete Safari desktop/mobile acceptance, screen-reader audit, or independent all-severity vulnerability scan of a future release artifact is claimed.
+- **Evidence limits:** Safari desktop/mobile workflow and screenshots are documented; desktop Run Simulation mouse activation is owner-verified, while mobile mouse interaction and visible focus-ring styling remain unverified. A screen-reader audit and an independent all-severity vulnerability scan of a future release artifact are not claimed.
 
 No user adoption, customer results, commercial impact, actual carbon savings, or ML-model performance is claimed. Real NESO data and forecast-backed scheduling are planned for v0.2.0 on a separate branch from the final v0.1.0 release main; they are not included here.
 
-## Visual evidence plan (not yet captured)
+## Live Safari acceptance evidence
 
-Capture new evidence only in Apple Safari against the live URL after an authorised browser session is available and the owner has confirmed the target service. Do not use Chrome for this acceptance. Keep the existing local Chrome/Playwright screenshots unchanged and labelled as local evidence.
-
-Planned captures (paths are proposed; these files do not yet exist):
-
-1. `docs/screenshots/release-v0.1.0/safari-live-desktop-inputs-1440x900.png` — live URL visible, simulation-only notice, default/example scenario and input controls.
-2. `docs/screenshots/release-v0.1.0/safari-live-desktop-results-1440x900.png` — both strategy outputs, equal-service eligibility, synthetic provenance, proxy units, comparison, and schedule/load views.
-3. `docs/screenshots/release-v0.1.0/safari-live-mobile-inputs-390x844.png` — labelled controls and run action at a mobile viewport, with no clipping.
-4. `docs/screenshots/release-v0.1.0/safari-live-mobile-results-390x844.png` — readable comparison/results, table alternative, and no page-level horizontal overflow.
-
-For each capture, record the exact URL, date, Safari version, viewport, and whether the source SHA was provider-verified. Use only synthetic data and avoid account or personal information. A screenshot supports a visual claim only; separately exercise the interaction and check browser errors. If capture or Safari access fails, leave the item pending rather than reusing a local image as live evidence.
+The public URL was exercised in Apple Safari 26.6.2 on 2026-10-27. The synthetic example was loaded, an input changed, and the simulation run; both schedules, equal-service comparison, carbon-proxy units, charts, accessible tables, navigation, and simulation-only notices were inspected. The responsive layout was checked at CSS viewports of 1440×900 and 390×844. The owner separately verified desktop Run Simulation mouse activation in a normal, focused Safari window on 27 October 2026 at 16:58 UK time; see the [acceptance record](../releases/v0.1.0-safari-acceptance.md) for its provenance and the remaining limitations. Captures: [desktop inputs](../screenshots/release-v0.1.0/safari-live-desktop-inputs-1440x900.png), [desktop results](../screenshots/release-v0.1.0/safari-live-desktop-results-1440x900.png), [mobile inputs](../screenshots/release-v0.1.0/safari-live-mobile-inputs-390x844.png), [mobile results](../screenshots/release-v0.1.0/safari-live-mobile-results-390x844.png). The WebDriver session was isolated from the owner's authenticated browser; the captures do not prove the current deployment SHA, plan, or Auto-Deploy state. Visible keyboard focus and mobile mouse interaction remain unverified, so browser acceptance is still partial.
 
 ## Next approval
 
-Before publishing v0.1.0, independently verify the existing service's current SHA, Free plan, and Auto-Deploy setting; complete Safari desktop/mobile acceptance and approve any new live screenshots; review the documentation change after its own required GitHub Actions checks pass; then explicitly approve release publication. This case study does not assert the current GitHub PR, tag, or release state and does not authorise a merge, Render setting change, or deployment.
+The Safari workflow and four requested captures are documented above. Desktop mouse activation is owner-verified; before publishing v0.1.0, verify the visible keyboard-focus indicator and mobile mouse interaction in Safari, and read back the existing service's current status, deployed SHA, Free plan, and Auto-Deploy setting in the Dashboard. Then merge the evidence-only documentation change after its required GitHub Actions checks pass. This case study does not assert the current GitHub PR, tag, or release state or authorise a Render setting change or deployment.
