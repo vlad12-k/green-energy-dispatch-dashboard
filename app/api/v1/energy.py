@@ -1,16 +1,18 @@
 from datetime import UTC, datetime
 import math
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 
 from app.services.carbon_gate import CarbonDecision, evaluate_carbon_gate
 from app.services.neso_carbon_intensity import (
+    CarbonIntensityForecastTimeline,
     CarbonIntensityReading,
     NESO_CACHE_TTL_SECONDS,
     NesoAPIError,
     freshness_deadline,
+    next_half_hour_start,
 )
 from app.services.intensity_units import LIVE_NESO_API_REPORTED_UNIT
 
@@ -98,6 +100,76 @@ class CarbonIntensityResponse(BaseModel):
         return value
 
 
+class CarbonIntensityForecastIntervalResponse(BaseModel):
+    """One half-hour interval that is explicitly identified as a forecast."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    measurement_type: Literal["forecast"]
+    observed_at: datetime
+    valid_until: datetime
+    intensity_gco2_per_kwh: FiniteFloat = Field(ge=0)
+    intensity_index: str = Field(min_length=1)
+
+    @field_validator("observed_at", "valid_until")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must include a timezone")
+        return value
+
+
+class CarbonIntensityForecastTimelineResponse(BaseModel):
+    """A validated, forecast-only regional timeline with retrieval provenance."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["available"] = "available"
+    measurement_type: Literal["forecast"] = "forecast"
+    units: Literal["gCO2/kWh"]
+    region_id: int = Field(ge=1, le=17)
+    region_name: str = Field(min_length=1)
+    requested_from: datetime
+    valid_until: datetime
+    retrieved_at: datetime
+    intervals: list[CarbonIntensityForecastIntervalResponse]
+    source_api: Literal["neso-carbon-intensity-api"]
+    source_url: str = Field(min_length=1)
+
+    @classmethod
+    def from_timeline(
+        cls,
+        timeline: CarbonIntensityForecastTimeline,
+    ) -> "CarbonIntensityForecastTimelineResponse":
+        return cls(
+            units=timeline.units,
+            region_id=timeline.region_id,
+            region_name=timeline.region_name,
+            requested_from=timeline.requested_from,
+            valid_until=timeline.valid_until,
+            retrieved_at=timeline.retrieved_at,
+            intervals=[
+                CarbonIntensityForecastIntervalResponse(
+                    measurement_type=interval.measurement_type,
+                    observed_at=interval.observed_at,
+                    valid_until=interval.valid_until,
+                    intensity_gco2_per_kwh=interval.intensity_gco2_per_kwh,
+                    intensity_index=interval.intensity_index,
+                )
+                for interval in timeline.intervals
+            ],
+            source_api=timeline.source_api,
+            source_url=timeline.source_url,
+        )
+
+    @field_validator("requested_from", "valid_until", "retrieved_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must include a timezone")
+        return value
+
+
 @router.get("/carbon-intensity", response_model=CarbonIntensityResponse)
 async def get_carbon_intensity(
     request: Request,
@@ -131,6 +203,33 @@ async def get_carbon_intensity(
         fresh_until=fresh_until,
         now=now,
     )
+
+
+@router.get(
+    "/carbon-intensity/forecast",
+    response_model=CarbonIntensityForecastTimelineResponse,
+)
+async def get_carbon_intensity_forecast(
+    request: Request,
+    response: Response,
+    region_id: Annotated[int, Query(ge=1, le=17)],
+) -> CarbonIntensityForecastTimelineResponse:
+    """Return a read-only forecast timeline for the next UTC-aligned 24 hours."""
+    response.headers["Cache-Control"] = "no-store"
+    reader = request.app.state.neso_carbon_intensity_reader
+    requested_from = next_half_hour_start(datetime.now(UTC))
+    try:
+        timeline = await reader.fetch_forecast_timeline(
+            region_id=region_id,
+            requested_from=requested_from,
+        )
+    except NesoAPIError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"NESO Carbon Intensity API forecast unavailable: {exc}",
+            headers={"Cache-Control": "no-store"},
+        ) from exc
+    return CarbonIntensityForecastTimelineResponse.from_timeline(timeline)
 
 
 @router.post("/carbon-gate", response_model=CarbonGateResponse)

@@ -15,7 +15,11 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 from app.services.intensity_units import LIVE_NESO_SOURCE_API as LIVE_SOURCE_API
-from app.services.intensity_units import IntensityUnit, units_for_source_api
+from app.services.intensity_units import (
+    LIVE_NESO_API_REPORTED_UNIT,
+    IntensityUnit,
+    units_for_source_api,
+)
 
 SOURCE_API: Literal["neso-carbon-intensity-api"] = LIVE_SOURCE_API
 DEFAULT_BASE_URL = "https://api.carbonintensity.org.uk"
@@ -23,6 +27,9 @@ ALLOWED_NESO_API_HOST = "api.carbonintensity.org.uk"
 NESO_CACHE_TTL_SECONDS = 30
 MAX_NESO_TIMEOUT_SECONDS = 30.0
 MAX_NESO_RESPONSE_BYTES = 64 * 1024
+NESO_INTENSITY_INDEXES = frozenset(
+    {"very low", "low", "moderate", "high", "very high"}
+)
 
 
 def is_allowed_neso_base_url(base_url: str) -> bool:
@@ -60,6 +67,19 @@ class NesoAPIError(RuntimeError):
         super().__init__(message)
 
 
+def _regional_forecast_url(
+    *,
+    base_url: str,
+    region_id: int,
+    requested_from: datetime,
+) -> str:
+    timestamp = requested_from.astimezone(UTC).strftime("%Y-%m-%dT%H:%MZ")
+    return urljoin(
+        f"{base_url.rstrip('/')}/",
+        f"regional/intensity/{timestamp}/fw24h/regionid/{region_id}",
+    )
+
+
 @dataclass(frozen=True)
 class CarbonIntensityReading:
     """A region-specific reading with time validity and source provenance."""
@@ -82,6 +102,35 @@ class CarbonIntensityReading:
     @property
     def units(self) -> IntensityUnit:
         return units_for_source_api(self.source_api)
+
+
+@dataclass(frozen=True)
+class CarbonIntensityForecastInterval:
+    """One explicitly forecast-only regional half-hour interval."""
+
+    observed_at: datetime
+    valid_until: datetime
+    intensity_gco2_per_kwh: float
+    intensity_index: str
+    measurement_type: Literal["forecast"] = "forecast"
+
+
+@dataclass(frozen=True)
+class CarbonIntensityForecastTimeline:
+    """A validated 24-hour regional forecast and its retrieval provenance."""
+
+    region_id: int
+    region_name: str
+    requested_from: datetime
+    valid_until: datetime
+    retrieved_at: datetime
+    intervals: tuple[CarbonIntensityForecastInterval, ...]
+    source_api: Literal["neso-carbon-intensity-api"]
+    source_url: str
+
+    @property
+    def units(self) -> Literal["gCO2/kWh"]:
+        return LIVE_NESO_API_REPORTED_UNIT
 
 
 def freshness_deadline(
@@ -110,6 +159,139 @@ def _parse_timestamp(value: Any, field_name: str) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError(f"{field_name} must include a timezone")
     return parsed.astimezone(UTC)
+
+
+def next_half_hour_start(now: datetime) -> datetime:
+    """Return the current exact UTC boundary or the next future boundary."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must include a timezone")
+    now_utc = now.astimezone(UTC)
+    boundary = now_utc.replace(minute=(now_utc.minute // 30) * 30, second=0, microsecond=0)
+    return boundary if boundary == now_utc else boundary + timedelta(minutes=30)
+
+
+def parse_regional_forecast_response(
+    payload: Any,
+    *,
+    region_id: int,
+    requested_from: datetime,
+    retrieved_at: datetime,
+    source_url: str | None = None,
+) -> CarbonIntensityForecastTimeline:
+    """Validate and normalise a regional 24-hour forecast response."""
+    if (
+        isinstance(region_id, bool)
+        or not isinstance(region_id, int)
+        or not 1 <= region_id <= 17
+    ):
+        raise ValueError("region_id must be between 1 and 17")
+    if requested_from.tzinfo is None or requested_from.utcoffset() is None:
+        raise ValueError("requested_from must include a timezone")
+    if retrieved_at.tzinfo is None or retrieved_at.utcoffset() is None:
+        raise ValueError("retrieved_at must include a timezone")
+    requested_from = requested_from.astimezone(UTC)
+    retrieved_at = retrieved_at.astimezone(UTC)
+    if (
+        requested_from.minute not in (0, 30)
+        or requested_from.second != 0
+        or requested_from.microsecond != 0
+    ):
+        raise ValueError("requested_from must be half-hour aligned in UTC")
+
+    if not isinstance(payload, Mapping):
+        raise ValueError("NESO response must be a JSON object")
+    regions = payload.get("data")
+    if not isinstance(regions, list) or not regions:
+        raise ValueError("response data must be a non-empty list")
+    if any(not isinstance(item, Mapping) for item in regions):
+        raise ValueError("regional entries must be JSON objects")
+    matching_regions = [item for item in regions if item.get("regionid") == region_id]
+    if not matching_regions:
+        raise ValueError("NESO response does not include the requested region")
+    if len(matching_regions) > 1:
+        raise ValueError("NESO response contains a duplicate region")
+    region = matching_regions[0]
+    if type(region.get("regionid")) is not int or len(regions) != 1:
+        raise ValueError("NESO response contains inconsistent region metadata")
+    region_name = region.get("shortname")
+    if not isinstance(region_name, str) or not region_name.strip():
+        raise ValueError("region shortname must be a non-empty string")
+    raw_intervals = region.get("data")
+    if not isinstance(raw_intervals, list) or not raw_intervals:
+        raise ValueError("regional forecast intervals must be a non-empty list")
+    if len(raw_intervals) < 48:
+        raise ValueError("forecast is missing forecast intervals")
+    if len(raw_intervals) > 48:
+        raise ValueError("forecast contains more than 48 half-hour intervals")
+
+    intervals: list[CarbonIntensityForecastInterval] = []
+    seen_starts: set[datetime] = set()
+    for index, raw_interval in enumerate(raw_intervals):
+        if not isinstance(raw_interval, Mapping):
+            raise ValueError("regional forecast interval must be a JSON object")
+        intensity = raw_interval.get("intensity")
+        if not isinstance(intensity, Mapping):
+            raise ValueError("regional forecast intensity must be a JSON object")
+        if intensity.get("actual") is not None:
+            raise ValueError("actual values are not accepted in a forecast response")
+        raw_value = intensity.get("forecast")
+        if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+            raise ValueError("forecast intensity must be numeric")
+        try:
+            value = float(raw_value)
+        except OverflowError as exc:
+            raise ValueError("forecast intensity must be finite and non-negative") from exc
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("forecast intensity must be finite and non-negative")
+        intensity_index = intensity.get("index")
+        if not isinstance(intensity_index, str) or not intensity_index.strip():
+            raise ValueError("forecast intensity index must be a non-empty string")
+        if intensity_index not in NESO_INTENSITY_INDEXES:
+            raise ValueError("forecast contains an unsupported intensity index")
+        observed_at = _parse_timestamp(
+            raw_interval.get("from"), f"data[0].data[{index}].from"
+        )
+        valid_until = _parse_timestamp(
+            raw_interval.get("to"), f"data[0].data[{index}].to"
+        )
+        if valid_until != observed_at + timedelta(minutes=30):
+            raise ValueError("each forecast interval must have a 30-minute duration")
+        if valid_until <= retrieved_at:
+            raise ValueError("forecast contains an outdated completed interval")
+        if observed_at < requested_from:
+            raise ValueError("forecast contains an outdated interval before the requested start")
+        if observed_at in seen_starts:
+            raise ValueError("forecast contains a duplicate forecast interval")
+        expected_start = requested_from + timedelta(minutes=30 * index)
+        if observed_at > expected_start:
+            raise ValueError("forecast is missing forecast intervals")
+        if observed_at < expected_start:
+            raise ValueError("forecast intervals are not in chronological order")
+        seen_starts.add(observed_at)
+        intervals.append(
+            CarbonIntensityForecastInterval(
+                observed_at=observed_at,
+                valid_until=valid_until,
+                intensity_gco2_per_kwh=value,
+                intensity_index=intensity_index,
+            )
+        )
+
+    return CarbonIntensityForecastTimeline(
+        region_id=region_id,
+        region_name=region_name.strip(),
+        requested_from=requested_from,
+        valid_until=intervals[-1].valid_until,
+        retrieved_at=retrieved_at,
+        intervals=tuple(intervals),
+        source_api=SOURCE_API,
+        source_url=source_url
+        or _regional_forecast_url(
+            base_url=DEFAULT_BASE_URL,
+            region_id=region_id,
+            requested_from=requested_from,
+        ),
+    )
 
 
 def parse_regional_response(
@@ -257,6 +439,10 @@ class NesoCarbonIntensityClient:
 
     async def fetch_raw(self) -> tuple[Any, datetime, str]:
         """Fetch one raw regional JSON response with retrieval-time provenance."""
+        return await self._fetch_json(self.endpoint_url)
+
+    async def _fetch_json(self, endpoint_url: str) -> tuple[Any, datetime, str]:
+        """Fetch bounded JSON from the allowlisted NESO origin without redirects."""
         try:
             async with asyncio.timeout(self.timeout_seconds):
                 async with httpx.AsyncClient(
@@ -266,7 +452,7 @@ class NesoCarbonIntensityClient:
                 ) as client:
                     async with client.stream(
                         "GET",
-                        self.endpoint_url,
+                        endpoint_url,
                         headers={
                             "Accept": "application/json",
                             "Accept-Encoding": "identity",
@@ -331,6 +517,49 @@ class NesoCarbonIntensityClient:
 
         return payload, retrieved_at, str(response.url)
 
+    async def fetch_forecast_timeline(
+        self,
+        *,
+        requested_from: datetime,
+        region_id: int | None = None,
+    ) -> CarbonIntensityForecastTimeline:
+        """Fetch and validate one official regional 24-hour forecast timeline."""
+        selected_region = self.region_id if region_id is None else region_id
+        if (
+            isinstance(selected_region, bool)
+            or not isinstance(selected_region, int)
+            or not 1 <= selected_region <= 17
+        ):
+            raise ValueError("region_id must be between 1 and 17")
+        if requested_from.tzinfo is None or requested_from.utcoffset() is None:
+            raise ValueError("requested_from must include a timezone")
+        requested_from = requested_from.astimezone(UTC)
+        if (
+            requested_from.minute not in (0, 30)
+            or requested_from.second != 0
+            or requested_from.microsecond != 0
+        ):
+            raise ValueError("requested_from must be half-hour aligned in UTC")
+
+        endpoint_url = _regional_forecast_url(
+            base_url=self.base_url,
+            region_id=selected_region,
+            requested_from=requested_from,
+        )
+        payload, retrieved_at, source_url = await self._fetch_json(endpoint_url)
+        try:
+            return parse_regional_forecast_response(
+                payload,
+                region_id=selected_region,
+                requested_from=requested_from,
+                retrieved_at=retrieved_at,
+                source_url=source_url,
+            )
+        except ValueError as exc:
+            raise NesoAPIError(
+                f"NESO Carbon Intensity API forecast data rejected: {exc}"
+            ) from exc
+
     async def fetch_latest(self) -> CarbonIntensityReading:
         """Fetch the latest regional interval; fail closed on invalid/stale data."""
         payload, retrieved_at, source_url = await self.fetch_raw()
@@ -366,6 +595,9 @@ class CachedNesoCarbonIntensityReader:
         self._clock = clock
         self._cached_reading: CarbonIntensityReading | None = None
         self._expires_at = 0.0
+        self._cached_forecasts: dict[
+            int, tuple[datetime, CarbonIntensityForecastTimeline, float]
+        ] = {}
         self._lock = asyncio.Lock()
 
     @property
@@ -398,3 +630,58 @@ class CachedNesoCarbonIntensityReader:
             )
             self._expires_at = self._clock() + cache_lifetime
             return reading
+
+    async def fetch_forecast_timeline(
+        self,
+        *,
+        region_id: int,
+        requested_from: datetime,
+    ) -> CarbonIntensityForecastTimeline:
+        """Cache one validated forecast per region and aligned request window."""
+        if isinstance(region_id, bool) or not isinstance(region_id, int) or not 1 <= region_id <= 17:
+            raise ValueError("region_id must be between 1 and 17")
+        if requested_from.tzinfo is None or requested_from.utcoffset() is None:
+            raise ValueError("requested_from must include a timezone")
+        requested_from = requested_from.astimezone(UTC)
+
+        cached = self._cached_forecasts.get(region_id)
+        now_monotonic = self._clock()
+        if (
+            cached is not None
+            and cached[0] == requested_from
+            and now_monotonic < cached[2]
+        ):
+            return cached[1]
+
+        async with self._lock:
+            cached = self._cached_forecasts.get(region_id)
+            now_monotonic = self._clock()
+            if (
+                cached is not None
+                and cached[0] == requested_from
+                and now_monotonic < cached[2]
+            ):
+                return cached[1]
+
+            timeline = await self._client.fetch_forecast_timeline(
+                region_id=region_id,
+                requested_from=requested_from,
+            )
+            now_utc = datetime.now(UTC)
+            remaining_validity = max(
+                0.0,
+                (timeline.valid_until - now_utc).total_seconds(),
+            )
+            cache_lifetime = min(self._cache_ttl_seconds, remaining_validity)
+            self._cached_forecasts = {
+                cached_region: entry
+                for cached_region, entry in self._cached_forecasts.items()
+                if self._clock() < entry[2] and cached_region != region_id
+            }
+            if cache_lifetime > 0:
+                self._cached_forecasts[region_id] = (
+                    requested_from,
+                    timeline,
+                    self._clock() + cache_lifetime,
+                )
+            return timeline
