@@ -3,6 +3,7 @@ import type { FieldErrors, Scenario, SimulationResult } from './api/client';
 import { SimulationApiError, evaluateScenario } from './api/client';
 import { ResultsDetailsPanel, ResultsPanel } from './components/ResultsPanel';
 import { ScenarioEditor } from './components/ScenarioEditor';
+import { LiveCarbonIntensity } from './components/LiveCarbonIntensity';
 import { createDemoScenario, scenarioSignature } from './data/scenario';
 
 interface EvaluationSnapshot {
@@ -165,7 +166,8 @@ export default function App() {
           <a aria-label="Scenario" href="#scenario-heading"><span className="rail-index">01</span><span>Scenario</span><span className="rail-arrow" aria-hidden="true">↗</span></a>
           <a aria-label="Analysis" href="#results-pane"><span className="rail-index">02</span><span>Analysis</span><span className="rail-arrow" aria-hidden="true">↗</span></a>
           {result && <a aria-label="Schedules" href="#schedule-details-heading"><span className="rail-index">03</span><span>Schedules</span><span className="rail-arrow" aria-hidden="true">↗</span></a>}
-          <a aria-label="Data basis" href="#source-basis"><span className="rail-index">04</span><span>Data basis</span><span className="rail-arrow" aria-hidden="true">↗</span></a>
+          <a aria-label="Live data" href="#live-carbon-intensity"><span className="rail-index">04</span><span>Live data</span><span className="rail-arrow" aria-hidden="true">↗</span></a>
+          <a aria-label="Data basis" href="#source-basis"><span className="rail-index">05</span><span>Data basis</span><span className="rail-arrow" aria-hidden="true">↗</span></a>
         </nav>
         <div className="rail-spacer" />
         <div className="rail-boundary"><span className="rail-boundary-mark" aria-hidden="true">S</span><div><strong>SIMULATION ONLY</strong><small>LOCAL / NO ACTUATION</small></div></div>
@@ -233,9 +235,11 @@ export default function App() {
           </div>
           {result && <div className="schedule-workspace"><ResultsDetailsPanel result={result} scenario={scenario} /></div>}
 
+          <LiveCarbonIntensity />
+
           <section id="source-basis" className="signal-note panel" aria-labelledby="signal-note-heading">
             <span className="signal-index">DATA / 01</span>
-            <div><p className="eyebrow">SOURCE BOUNDARY</p><h2 id="signal-note-heading">Synthetic profile — no live NESO signal used</h2><p>This dashboard evaluates manually configured synthetic intensity values only. The existing read-only NESO endpoint remains separate and is not connected to this scheduler.</p></div>
+            <div><p className="eyebrow">SOURCE BOUNDARY</p><h2 id="signal-note-heading">Synthetic schedule inputs — live display isolated</h2><p>Schedule evaluation continues to use manually configured synthetic intensity values only. The read-only NESO display does not feed, modify, or influence either scheduling strategy.</p></div>
             <span className="signal-status">NOT CONNECTED</span>
           </section>
 

@@ -10,6 +10,10 @@ from app.api.v1.simulations import router as simulations_router
 from app.core.config import Settings, settings
 from app.core.logging import setup_logging
 from app.core.portfolio_guard import PublicDemoGuardMiddleware
+from app.services.neso_carbon_intensity import (
+    CachedNesoCarbonIntensityReader,
+    NesoCarbonIntensityClient,
+)
 
 _FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 
@@ -48,6 +52,14 @@ def create_app(
         docs_url="/docs" if api_docs_enabled else None,
         redoc_url="/redoc" if api_docs_enabled else None,
         openapi_url="/openapi.json" if api_docs_enabled else None,
+    )
+    application.state.neso_carbon_intensity_reader = CachedNesoCarbonIntensityReader(
+        NesoCarbonIntensityClient(
+            base_url=application_settings.neso_api_base_url,
+            region_id=application_settings.neso_region_id,
+            max_age_seconds=application_settings.neso_max_age_seconds,
+            timeout_seconds=application_settings.neso_timeout_seconds,
+        )
     )
     application.include_router(energy_router, prefix="/api/v1")
     application.include_router(simulations_router, prefix="/api/v1")

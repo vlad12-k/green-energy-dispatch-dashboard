@@ -2,7 +2,7 @@
 
 > **Live demo:** [Green Energy Dispatch](https://green-energy-dispatch-dashboard.onrender.com) — a public, synthetic-only EV-depot scheduling demonstration.
 
-Green Energy Dispatch is a UK grid-aware energy operations **portfolio prototype**. The hosted demo serves a production-built React/Vite dashboard and FastAPI from one origin. Visitors can edit a synthetic depot scenario and compare Python-computed schedules. No live NESO signal feeds this scheduler.
+Green Energy Dispatch is a UK energy-software **portfolio prototype**. The deployed v0.1.0 demo serves a production-built React/Vite dashboard and FastAPI from one origin. This v0.2.0 Phase A branch adds a separate, read-only live NESO display; the synthetic EV-depot scheduler remains unchanged and never consumes that signal. Carbon-proxy values remain scenario calculations, not measured or verified emissions reductions.
 
 > **Safety boundary:** the demo is advisory and price-free. It is not connected to an electricity market, balancing mechanism, charger, or other physical asset; it never places trades or issues control commands. Carbon-proxy values are scenario calculations, not measured or verified emissions reductions.
 
@@ -11,8 +11,8 @@ Green Energy Dispatch is a UK grid-aware energy operations **portfolio prototype
 - `GET /health` — application health response.
 - `POST /api/v1/simulations/ev-depot/evaluate` — stateless synthetic evaluation of the existing **Immediate Baseline** and **Carbon-Aware Heuristic**, with input provenance and equal-service comparison eligibility.
 - React/TypeScript operator dashboard — scenario editing, bounded JSON import/export, API-backed results, schedule/load/intensity visualisations, validation feedback, and text/table alternatives.
-- In the public simulation-only mode, other `/api/*` routes and interactive API documentation are disabled. The public smoke test verified the documented NESO routes and docs paths return 404.
-- The broader repository also contains a separate read-only NESO adapter, optional PostgreSQL evidence storage/replay, and an opt-in collector. These are local/optional capabilities; they are not inputs to the hosted scheduler, and the public demo does not persist submitted scenarios.
+- In the v0.2.0 Phase A application candidate, simulation-only mode allows the synthetic `POST` route and a read-only `GET /api/v1/energy/carbon-intensity` route for the configured region. Other `/api/*` routes and interactive documentation remain disabled; the public v0.1.0 deployment is not changed by this branch.
+- The optional PostgreSQL evidence store/replay and collector remain separate from the dashboard and scheduler. The live GET is cached, validates upstream data, and never writes to the database or changes synthetic schedule inputs.
 - No user authentication or authorisation is implemented. Do not submit personal, operational, or confidential data.
 
 ## Architecture and roadmap
@@ -34,11 +34,11 @@ python -m pip install -r requirements.txt
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-This starts the API only. The synthetic dashboard needs no `.env`, database, cloud credentials, or NESO access. Defaults are conservative (`APP_ENV=production`, `DEBUG=false`); `/docs`, `/redoc`, and `/openapi.json` are disabled. Enable debug documentation only in a trusted local development environment, never in the public demo.
+This starts the API only. Synthetic scheduling requires no `.env`, database, cloud credentials, or NESO access; the separate live panel needs only outbound HTTPS to the public NESO API, and shows an explicit unavailable state if that feed cannot be reached. Defaults are conservative (`APP_ENV=production`, `DEBUG=false`); `/docs`, `/redoc`, and `/openapi.json` are disabled. Enable debug documentation only in a trusted local development environment, never in a public deployment.
 
 ## Local operator dashboard
 
-Requirements: Python 3.12 or newer and Node.js 22.12 or newer with npm. No database, cloud account, NESO access, or credentials are needed for the synthetic dashboard.
+Requirements: Python 3.12 or newer and Node.js 22.12 or newer with npm. No database, cloud account, or credentials are needed; the backend uses the public NESO API without credentials when network access is available.
 
 Start the API from the repository root:
 
@@ -54,13 +54,15 @@ npm ci
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite proxies `/api` and `/health` to `http://127.0.0.1:8000`; requests stay same-origin without permissive CORS. Load the synthetic example, edit the vehicle energy requirement or carbon profile, run the simulation, inspect both returned schedules, and export the scenario JSON. The dashboard does not call the NESO endpoint. See [`docs/OPERATOR_DASHBOARD.md`](docs/OPERATOR_DASHBOARD.md) for the operator guide, API contract, and implementation boundaries.
+Open <http://127.0.0.1:5173>. Vite proxies `/api` and `/health` to `http://127.0.0.1:8000`; requests stay same-origin without permissive CORS. Load and edit the synthetic scenario, run the simulation, and inspect both returned schedules. The separate live panel displays the configured NESO region but never feeds either scheduling strategy; if the public upstream is unreachable, the page clearly reports that live data is unavailable while synthetic evaluation remains usable. See [`docs/OPERATOR_DASHBOARD.md`](docs/OPERATOR_DASHBOARD.md) for the operator guide, API contract, and implementation boundaries.
 
 See [`docs/design/ev-depot-dispatch-workbench.md`](docs/design/ev-depot-dispatch-workbench.md) for the current visual architecture, selected design reference, screenshots, local QA evidence, and release limitations.
 
 The API base is same-origin by default (`VITE_API_BASE_URL` is empty). Only set it to a same-origin API prefix when changing the local proxy configuration; cross-origin access is intentionally not enabled.
 
-## Verified test and CI evidence
+## v0.1.0 verified test and CI evidence (historical)
+
+The following records the published v0.1.0 state and predates the v0.2.0 Phase A candidate. It is retained as release evidence and does not describe a deployment of this branch.
 
 Post-merge GitHub Actions run [40193307594](https://github.com/vlad12-k/green-energy-dispatch-dashboard/actions/runs/40193307594) passed all four jobs on application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659`:
 
@@ -81,15 +83,19 @@ The owner-provided deployment log explicitly records checkout of application com
 
 The Docker build produces `frontend/dist` and the FastAPI application serves the built frontend when `SERVE_FRONTEND=true`; the public demo therefore uses one origin. In local development, Vite remains a separate server and proxies API requests. TypeScript API types are generated from FastAPI's OpenAPI model during the frontend build; interactive docs remain disabled in simulation-only runtime mode.
 
-## Separate local NESO adapter
+## Read-only NESO API and dashboard section
 
-The full local application also provides a read-only NESO route (default GB region ID 13). It is not part of the public simulation-only API and is not connected to the EV-depot scheduler. To exercise it locally:
+The v0.2.0 Phase A candidate exposes a public, read-only `GET /api/v1/energy/carbon-intensity` route for the configured NESO region (default GB region ID 13). The React panel shows the region, intensity, upstream unit, actual/forecast provenance, observed interval, retrieval time, age and freshness. It is not connected to either scheduling strategy, and the published v0.1.0 service is unchanged until any separately approved deployment.
+
+For a local read-only request:
 
 ```bash
 curl http://127.0.0.1:8000/api/v1/energy/carbon-intensity
 ```
 
-Configure `NESO_REGION_ID`, `NESO_MAX_AGE_SECONDS`, and `NESO_TIMEOUT_SECONDS` as needed. The response includes `measurement_type` (`actual` or `forecast`), `interval_status` (`upcoming`, `in_progress`, or `completed`), interval bounds, retrieval time, age from interval start, time since interval end, a freshness flag, source API, and source URL. Completed intervals are not automatically rejected: recent actual readings may remain fresh; a completed forecast is returned with `is_fresh=false`. Future forecasts are supported up to 48 hours. NESO does not provide a distinct publication timestamp in this response, so time since interval end is not an exact measure of publication delay. Readings beyond `NESO_MAX_AGE_SECONDS` still fail closed.
+The backend accepts only the official HTTPS host `api.carbonintensity.org.uk`, disables redirects, applies a bounded upstream timeout (default 5 seconds; maximum 30), caps decoded JSON at 64 KiB, and validates the region, timestamp, value and response shape. The in-process cache is at most 30 seconds and never extends a reading beyond its freshness/forecast interval boundary. Fresh responses may be cached for 30 seconds; stale and error responses use `Cache-Control: no-store`. The public route uses a separate 60-request/minute process-local bucket from the synthetic evaluator; this shared per-process limit is not per-IP or distributed.
+
+Configure `NESO_API_BASE_URL`, `NESO_REGION_ID`, `NESO_MAX_AGE_SECONDS`, and `NESO_TIMEOUT_SECONDS` as needed. The response contains `measurement_type` (`actual` or `forecast`), `interval_status` (`upcoming`, `in_progress`, or `completed`), interval bounds, retrieval time, age from interval start, interval lag, a freshness flag, source API, and source URL. The public API reports the NESO-documented unit `gCO2/kWh` without conversion; the separate persisted-observation unit mapping remains unchanged. Completed forecasts are explicitly marked stale and are not publicly cached. A completed recent actual may remain fresh within the configured max age. Future forecasts are supported up to 48 hours. NESO does not provide a distinct publication timestamp in this response, so time since interval end is not an exact measure of publication delay. Unreachable or invalid upstream data is reported as unavailable; the synthetic scheduler remains usable.
 
 ## Scheduled NESO collection (opt-in)
 

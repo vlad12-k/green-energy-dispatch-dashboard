@@ -13,11 +13,24 @@ import time
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _SCENARIO_PATH = _REPOSITORY_ROOT / "examples" / "carbon_aware_ev_depot_demo.json"
 _EVALUATION_PATH = "/api/v1/simulations/ev-depot/evaluate"
+
+
+class _RejectRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        return None
 
 
 class _FrontendAssetParser(HTMLParser):
@@ -77,7 +90,8 @@ def _request(
         method=method,
     )
     try:
-        with urlopen(request, timeout=timeout) as response:
+        opener = build_opener(_RejectRedirectHandler())
+        with opener.open(request, timeout=timeout) as response:
             return response.status, response.headers, response.read()
     except HTTPError as error:
         return error.code, error.headers, error.read()
@@ -109,6 +123,14 @@ def _wait_for_health(base_url: str, timeout: float) -> dict[str, Any]:
 def _require_status(actual: int, expected: int, path: str) -> None:
     if actual != expected:
         raise RuntimeError(f"{path} returned HTTP {actual}; expected {expected}")
+
+
+def _verify_read_only_neso_route(base_url: str) -> None:
+    path = "/api/v1/energy/carbon-intensity"
+    status, headers, _body = _request(base_url, path, method="POST", body=b"{}")
+    _require_status(status, 405, path)
+    if headers.get("Allow") != "GET":
+        raise RuntimeError(f"{path} did not advertise GET as its only allowed method")
 
 
 def _validate_scenario_response(body: bytes) -> dict[str, Any]:
@@ -150,6 +172,7 @@ def _validate_base_url(value: str) -> str:
 
 
 def run_smoke(base_url: str, startup_timeout: float = 90.0) -> dict[str, Any]:
+    base_url = _validate_base_url(base_url)
     health = _wait_for_health(base_url, startup_timeout)
     frontend_assets: list[str] = []
 
@@ -182,8 +205,8 @@ def run_smoke(base_url: str, startup_timeout: float = 90.0) -> dict[str, Any]:
     _require_status(status, 200, _EVALUATION_PATH)
     result = _validate_scenario_response(response_body)
 
+    _verify_read_only_neso_route(base_url)
     for path in (
-        "/api/v1/energy/carbon-intensity",
         "/api/v1/energy/carbon-gate",
         "/docs",
         "/openapi.json",
@@ -205,6 +228,7 @@ def run_smoke(base_url: str, startup_timeout: float = 90.0) -> dict[str, Any]:
                 "real_world_emissions_reduction_claimed"
             ],
         },
+        "neso_carbon_intensity_route": "GET-only; write method rejected without an upstream request",
         "simulation_only_routes": "verified",
     }
 
