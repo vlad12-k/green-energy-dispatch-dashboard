@@ -9,8 +9,10 @@ from pydantic import ValidationError
 
 from app.schemas.ev_depot import CarbonAwareDepotScenario
 from app.services.carbon_aware_scheduler import (
+    SchedulerCarbonIntensityInterval,
     _request_is_satisfied,
     schedule_carbon_aware,
+    schedule_with_carbon_profile,
 )
 
 
@@ -364,6 +366,32 @@ def test_profile_rejects_negative_or_non_finite_intensity(value: float) -> None:
 
     with pytest.raises(ValidationError):
         CarbonAwareDepotScenario.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "intensity",
+    [
+        pytest.param(10**1000, id="extremely-large-integer"),
+        pytest.param(1_000_000_001.0, id="over-limit-finite"),
+        pytest.param(True, id="boolean-is-not-an-intensity"),
+    ],
+)
+def test_shared_scheduler_rejects_out_of_range_intensity(
+    intensity: int | float,
+) -> None:
+    scenario = _scenario()
+    profile = tuple(
+        SchedulerCarbonIntensityInterval(
+            interval_start=row.interval_start,
+            interval_end=row.interval_end,
+            intensity_value=intensity,
+            intensity_unit=row.intensity_unit,
+        )
+        for row in scenario.carbon_intensity_profile
+    )
+
+    with pytest.raises(ValueError, match="carbon profile values"):
+        schedule_with_carbon_profile(scenario, profile)
 
 
 def test_carbon_aware_inputs_reject_finite_values_that_can_overflow_proxy_math() -> None:

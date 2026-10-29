@@ -3,16 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 import math
+from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from app.schemas.ev_depot import (
+    _MAX_CARBON_AWARE_NUMERIC_VALUE,
     CarbonAwareDepotScenario,
+    DepotScenario,
     SimulationResult,
     _GreedyScheduleTrace,
     _run_greedy_schedule,
-    simulate_baseline,
 )
 
 _ENERGY_TOLERANCE_KWH = 1e-9
@@ -161,6 +163,29 @@ class _MutableSegment:
         )
 
 
+@dataclass(frozen=True)
+class SchedulerCarbonIntensityInterval:
+    """Validated interval values consumed by the shared scheduling heuristic.
+
+    This algorithm input deliberately carries no source classification or
+    geography. Callers retain and report provenance in their own contracts.
+    """
+
+    interval_start: datetime
+    interval_end: datetime
+    intensity_value: float
+    intensity_unit: str
+
+
+@dataclass(frozen=True)
+class _CarbonAwareScheduleComputation:
+    baseline_trace: _GreedyScheduleTrace
+    baseline_segments: list[_MutableSegment]
+    carbon_segments: list[_MutableSegment]
+    baseline_schedule: CarbonAwareSchedule
+    carbon_aware_schedule: CarbonAwareSchedule
+
+
 def schedule_carbon_aware(
     scenario: CarbonAwareDepotScenario,
 ) -> CarbonAwareSimulationResult:
@@ -171,7 +196,20 @@ def schedule_carbon_aware(
     segments with spare vehicle and depot capacity. This is a heuristic, not a
     global optimizer; failure to complete demand is reported as not demonstrated.
     """
-    baseline_result = simulate_baseline(scenario)
+    computation = _compute_schedule_pair(
+        scenario,
+        _synthetic_scheduler_profile(scenario),
+    )
+    baseline_trace = computation.baseline_trace
+    baseline_result = SimulationResult(
+        strategy="immediate_charge_in_vehicle_id_order",
+        feasible=baseline_trace.feasible,
+        baseline_feasible=baseline_trace.feasible,
+        feasible_alternative_schedule="unknown",
+        delivered_energy_kwh=baseline_trace.delivered_energy_kwh,
+        unmet_energy_kwh=baseline_trace.unmet_energy_kwh,
+        charging_kw=list(baseline_trace.charging_kw),
+    )
     baseline = baseline_result.model_copy(
         update={
             "delivered_energy_kwh": dict(
@@ -182,29 +220,10 @@ def schedule_carbon_aware(
             ),
         }
     )
-    baseline_trace = _run_greedy_schedule(
-        scenario,
-        earliest_deadline_first=False,
-    )
-    carbon_trace = _run_greedy_schedule(
-        scenario,
-        earliest_deadline_first=True,
-    )
-    segments = _build_profile_segments(scenario, carbon_trace)
-    if carbon_trace.feasible:
-        _shift_energy_to_lower_carbon_segments(scenario, segments)
-
-    baseline_segments = _build_profile_segments(scenario, baseline_trace)
-    baseline_report = _build_schedule_report(
-        scenario,
-        baseline_segments,
-        strategy=baseline.strategy,
-    )
-    carbon_aware = _build_schedule_report(
-        scenario,
-        segments,
-        strategy="carbon_aware_edf_then_bounded_carbon_shift_v1",
-    )
+    baseline_segments = computation.baseline_segments
+    segments = computation.carbon_segments
+    baseline_report = computation.baseline_schedule
+    carbon_aware = computation.carbon_aware_schedule
 
     baseline_proxy = baseline_report.carbon_intensity_weighted_energy_proxy
     carbon_proxy = carbon_aware.carbon_intensity_weighted_energy_proxy
@@ -279,8 +298,110 @@ def schedule_carbon_aware(
     )
 
 
+def schedule_with_carbon_profile(
+    scenario: DepotScenario,
+    profile: Sequence[SchedulerCarbonIntensityInterval],
+) -> tuple[CarbonAwareSchedule, CarbonAwareSchedule]:
+    """Run the established baseline and bounded heuristic on one carbon profile."""
+    computation = _compute_schedule_pair(scenario, profile)
+    return computation.baseline_schedule, computation.carbon_aware_schedule
+
+
+def _synthetic_scheduler_profile(
+    scenario: CarbonAwareDepotScenario,
+) -> tuple[SchedulerCarbonIntensityInterval, ...]:
+    return tuple(
+        SchedulerCarbonIntensityInterval(
+            interval_start=row.interval_start,
+            interval_end=row.interval_end,
+            intensity_value=row.intensity_value,
+            intensity_unit=row.intensity_unit,
+        )
+        for row in scenario.carbon_intensity_profile
+    )
+
+
+def _compute_schedule_pair(
+    scenario: DepotScenario,
+    profile: Sequence[SchedulerCarbonIntensityInterval],
+) -> _CarbonAwareScheduleComputation:
+    _validate_scheduler_profile(scenario, profile)
+    baseline_trace = _run_greedy_schedule(
+        scenario,
+        earliest_deadline_first=False,
+    )
+    carbon_trace = _run_greedy_schedule(
+        scenario,
+        earliest_deadline_first=True,
+    )
+    baseline_segments = _build_segments_for_profile(scenario, profile, baseline_trace)
+    carbon_segments = _build_segments_for_profile(scenario, profile, carbon_trace)
+    if carbon_trace.feasible:
+        _shift_energy_to_lower_carbon_segments(scenario, carbon_segments)
+    baseline_schedule = _build_schedule_report(
+        scenario,
+        profile,
+        baseline_segments,
+        strategy="immediate_charge_in_vehicle_id_order",
+    )
+    carbon_aware_schedule = _build_schedule_report(
+        scenario,
+        profile,
+        carbon_segments,
+        strategy="carbon_aware_edf_then_bounded_carbon_shift_v1",
+    )
+    return _CarbonAwareScheduleComputation(
+        baseline_trace=baseline_trace,
+        baseline_segments=baseline_segments,
+        carbon_segments=carbon_segments,
+        baseline_schedule=baseline_schedule,
+        carbon_aware_schedule=carbon_aware_schedule,
+    )
+
+
+def _validate_scheduler_profile(
+    scenario: DepotScenario,
+    profile: Sequence[SchedulerCarbonIntensityInterval],
+) -> None:
+    if len(profile) != scenario.intervals:
+        raise ValueError("carbon profile must cover every scenario interval")
+    units = {row.intensity_unit for row in profile}
+    if len(units) != 1 or not units <= {"gCO2/kWh", "gCO2e/kWh"}:
+        raise ValueError("carbon profile must use one supported intensity unit")
+    for index, row in enumerate(profile):
+        expected_start = scenario.start_at + scenario.interval * index
+        expected_end = expected_start + scenario.interval
+        if row.interval_start != expected_start or row.interval_end != expected_end:
+            raise ValueError("carbon profile intervals must align exactly with the scenario")
+        intensity = row.intensity_value
+        if (
+            isinstance(intensity, bool)
+            or not isinstance(intensity, (int, float))
+            or intensity < 0
+            or intensity > _MAX_CARBON_AWARE_NUMERIC_VALUE
+            or not math.isfinite(intensity)
+        ):
+            raise ValueError(
+                "carbon profile values must be finite, non-negative, and no greater "
+                "than 1,000,000,000"
+            )
+
+
 def _build_profile_segments(
     scenario: CarbonAwareDepotScenario,
+    trace: _GreedyScheduleTrace,
+) -> list[_MutableSegment]:
+    """Keep the synthetic segment-count helper's original private signature."""
+    return _build_segments_for_profile(
+        scenario,
+        _synthetic_scheduler_profile(scenario),
+        trace,
+    )
+
+
+def _build_segments_for_profile(
+    scenario: DepotScenario,
+    profile: Sequence[SchedulerCarbonIntensityInterval],
     trace: _GreedyScheduleTrace,
 ) -> list[_MutableSegment]:
     trace_by_segment = {
@@ -290,15 +411,15 @@ def _build_profile_segments(
         for segment in trace.segments
     }
     segments: list[_MutableSegment] = []
-    for index, profile in enumerate(scenario.carbon_intensity_profile):
-        boundaries = {profile.interval_start, profile.interval_end}
+    for index, profile_row in enumerate(profile):
+        boundaries = {profile_row.interval_start, profile_row.interval_end}
         for vehicle in scenario.vehicles:
             if (
-                vehicle.availability_start < profile.interval_end
-                and vehicle.availability_end > profile.interval_start
+                vehicle.availability_start < profile_row.interval_end
+                and vehicle.availability_end > profile_row.interval_start
             ):
-                boundaries.add(max(profile.interval_start, vehicle.availability_start))
-                boundaries.add(min(profile.interval_end, vehicle.availability_end))
+                boundaries.add(max(profile_row.interval_start, vehicle.availability_start))
+                boundaries.add(min(profile_row.interval_end, vehicle.availability_end))
         ordered_boundaries = sorted(boundaries)
         for start_at, end_at in zip(ordered_boundaries, ordered_boundaries[1:]):
             key = (index, start_at, end_at)
@@ -307,7 +428,7 @@ def _build_profile_segments(
                     interval_index=index,
                     start_at=start_at,
                     end_at=end_at,
-                    carbon_intensity=profile.intensity_value,
+                    carbon_intensity=profile_row.intensity_value,
                     energy_by_vehicle_kwh=trace_by_segment.get(key, {}).copy(),
                 )
             )
@@ -315,7 +436,7 @@ def _build_profile_segments(
 
 
 def _shift_energy_to_lower_carbon_segments(
-    scenario: CarbonAwareDepotScenario,
+    scenario: DepotScenario,
     segments: list[_MutableSegment],
 ) -> None:
     vehicles = {vehicle.vehicle_id: vehicle for vehicle in scenario.vehicles}
@@ -402,7 +523,8 @@ def _request_is_satisfied(required_energy_kwh: float, delivered_energy_kwh: floa
 
 
 def _build_schedule_report(
-    scenario: CarbonAwareDepotScenario,
+    scenario: DepotScenario,
+    profile: Sequence[SchedulerCarbonIntensityInterval],
     segments: list[_MutableSegment],
     *,
     strategy: Literal[
@@ -447,7 +569,6 @@ def _build_schedule_report(
         for vehicle_id in sorted(vehicle_by_id)
     )
     interval_hours = scenario.interval.total_seconds() / 3600
-    profile = scenario.carbon_intensity_profile
     loads: list[AggregateDepotLoad] = []
     interval_charging_kw: list[float] = []
     for index, profile_row in enumerate(profile):
@@ -474,7 +595,7 @@ def _build_schedule_report(
                 delivered_energy_kwh=energy,
             )
         )
-    allocations = _allocations_for_segments(scenario, segments)
+    allocations = _allocations_for_segments(scenario, profile, segments)
     checks = _check_constraints(scenario, segments, delivered, unmet)
     carbon_proxy = math.fsum(
         math.fsum(segment.energy_by_vehicle_kwh.values())
@@ -516,10 +637,10 @@ def _build_schedule_report(
 
 
 def _allocations_for_segments(
-    scenario: CarbonAwareDepotScenario,
+    scenario: DepotScenario,
+    profile: Sequence[SchedulerCarbonIntensityInterval],
     segments: list[_MutableSegment],
 ) -> list[ChargingAllocation]:
-    profile = scenario.carbon_intensity_profile
     return [
         ChargingAllocation(
             interval_index=segment.interval_index,
@@ -541,7 +662,7 @@ def _allocations_for_segments(
 
 
 def _check_constraints(
-    scenario: CarbonAwareDepotScenario,
+    scenario: DepotScenario,
     segments: list[_MutableSegment],
     delivered: dict[str, float],
     unmet: dict[str, float],
@@ -593,7 +714,7 @@ def _check_constraints(
 
 
 def _binding_constraints(
-    scenario: CarbonAwareDepotScenario,
+    scenario: DepotScenario,
     segments: list[_MutableSegment],
 ) -> BindingOperationalConstraints:
     vehicles = {vehicle.vehicle_id: vehicle for vehicle in scenario.vehicles}
