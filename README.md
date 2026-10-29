@@ -1,8 +1,8 @@
 # Green Energy Dispatch Dashboard
 
-> **Live demo:** [Green Energy Dispatch](https://green-energy-dispatch-dashboard.onrender.com) — a public, synthetic-only EV-depot scheduling demonstration.
+> **Live demo:** [Green Energy Dispatch](https://green-energy-dispatch-dashboard.onrender.com) — a public simulation-only EV-depot demonstration with a separate read-only NESO display.
 
-Green Energy Dispatch is a UK energy-software **portfolio prototype**. The deployed v0.1.0 demo serves a production-built React/Vite dashboard and FastAPI from one origin. This v0.2.0 Phase A branch adds a separate, read-only live NESO display; the synthetic EV-depot scheduler remains unchanged and never consumes that signal. Carbon-proxy values remain scenario calculations, not measured or verified emissions reductions.
+Green Energy Dispatch is a UK energy-software **portfolio prototype**. The current public deployment runs the v0.2.0 Phase A application: a production-built React/Vite dashboard and FastAPI from one origin, with a separate read-only live NESO display. The synthetic EV-depot scheduler remains unchanged and never consumes that signal. Carbon-proxy values remain scenario calculations, not measured or verified emissions reductions.
 
 > **Safety boundary:** the demo is advisory and price-free. It is not connected to an electricity market, balancing mechanism, charger, or other physical asset; it never places trades or issues control commands. Carbon-proxy values are scenario calculations, not measured or verified emissions reductions.
 
@@ -11,17 +11,17 @@ Green Energy Dispatch is a UK energy-software **portfolio prototype**. The deplo
 - `GET /health` — application health response.
 - `POST /api/v1/simulations/ev-depot/evaluate` — stateless synthetic evaluation of the existing **Immediate Baseline** and **Carbon-Aware Heuristic**, with input provenance and equal-service comparison eligibility.
 - React/TypeScript operator dashboard — scenario editing, bounded JSON import/export, API-backed results, schedule/load/intensity visualisations, validation feedback, and text/table alternatives.
-- In the v0.2.0 Phase A application candidate, simulation-only mode allows the synthetic `POST` route and a read-only `GET /api/v1/energy/carbon-intensity` route for the configured region. Other `/api/*` routes and interactive documentation remain disabled; the public v0.1.0 deployment is not changed by this branch.
+- In the deployed v0.2.0 Phase A simulation-only mode, only the synthetic `POST` evaluation route and read-only `GET /api/v1/energy/carbon-intensity` route for the configured region are exposed. Other `/api/*` routes and interactive documentation remain disabled.
 - The optional PostgreSQL evidence store/replay and collector remain separate from the dashboard and scheduler. The live GET is cached, validates upstream data, and never writes to the database or changes synthetic schedule inputs.
 - No user authentication or authorisation is implemented. Do not submit personal, operational, or confidential data.
 
 ## Architecture and roadmap
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system diagram, component boundaries, deployment evidence, and roadmap. [`docs/OPERATOR_DASHBOARD.md`](docs/OPERATOR_DASHBOARD.md) explains the scenario workflow and result interpretation; [`docs/EV_DEPOT_SIMULATION.md`](docs/EV_DEPOT_SIMULATION.md) documents the scheduler and proxy semantics. The optional local persistence and replay workflow is covered by [`docs/DATABASE_AND_REPLAY.md`](docs/DATABASE_AND_REPLAY.md), and the forecast archive boundary by [`docs/NESO_HISTORICAL_ACQUISITION.md`](docs/NESO_HISTORICAL_ACQUISITION.md). The local NESO/PostgreSQL capabilities and the public demo are deliberately described separately. Production operations—including an availability target, monitoring, alerting, backups, and live asset or market integration—are not established by this portfolio demo.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system diagram, component boundaries, deployment evidence, and roadmap. [`docs/deployment/staging-runbook.md`](docs/deployment/staging-runbook.md) records the current service boundary and deployment checks. [`docs/OPERATOR_DASHBOARD.md`](docs/OPERATOR_DASHBOARD.md) explains the scenario workflow and result interpretation; [`docs/EV_DEPOT_SIMULATION.md`](docs/EV_DEPOT_SIMULATION.md) documents the scheduler and proxy semantics. The optional local persistence and replay workflow is covered by [`docs/DATABASE_AND_REPLAY.md`](docs/DATABASE_AND_REPLAY.md), and the forecast archive boundary by [`docs/NESO_HISTORICAL_ACQUISITION.md`](docs/NESO_HISTORICAL_ACQUISITION.md). The local NESO/PostgreSQL capabilities and the public demo are deliberately described separately. Production operations—including an availability target, monitoring, alerting, backups, and live asset or market integration—are not established by this portfolio demo.
 
 The v0.1.0 release notes are in [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md), with the technical case study at [`docs/case-studies/green-energy-dispatch-v0.1.0.md`](docs/case-studies/green-energy-dispatch-v0.1.0.md). Current release and tag state is tracked on the repository's GitHub Releases and Tags pages, not asserted by these documents.
 
-The public Safari workflow and captures from 2026-10-27 at 1440×900 and 390×844 are documented in [`docs/releases/v0.1.0-safari-acceptance.md`](docs/releases/v0.1.0-safari-acceptance.md). Captures: [desktop inputs](docs/screenshots/release-v0.1.0/safari-live-desktop-inputs-1440x900.png), [desktop results](docs/screenshots/release-v0.1.0/safari-live-desktop-results-1440x900.png), [mobile inputs](docs/screenshots/release-v0.1.0/safari-live-mobile-inputs-390x844.png), and [mobile results](docs/screenshots/release-v0.1.0/safari-live-mobile-results-390x844.png). Desktop mouse activation was owner-verified on 27 October 2026 at 16:58 UK time; visible keyboard focus, mobile mouse interaction, and current Render deployment metadata remain unverified.
+The v0.1.0 Safari workflow and captures from 2026-10-27 remain documented in [`docs/releases/v0.1.0-safari-acceptance.md`](docs/releases/v0.1.0-safari-acceptance.md): [desktop inputs](docs/screenshots/release-v0.1.0/safari-live-desktop-inputs-1440x900.png), [desktop results](docs/screenshots/release-v0.1.0/safari-live-desktop-results-1440x900.png), [mobile inputs](docs/screenshots/release-v0.1.0/safari-live-mobile-inputs-390x844.png), and [mobile results](docs/screenshots/release-v0.1.0/safari-live-mobile-results-390x844.png). In that historical acceptance, desktop mouse activation was owner-verified; visible keyboard focus and mobile mouse interaction remained unverified. Current v0.2.0 Phase A production Safari evidence and its wide-viewport limitation are recorded in [`docs/releases/v0.2.0-alpha.1.md`](docs/releases/v0.2.0-alpha.1.md); mobile responsive acceptance is **NOT VERIFIED**.
 
 ## Quick start
 
@@ -60,9 +60,13 @@ See [`docs/design/ev-depot-dispatch-workbench.md`](docs/design/ev-depot-dispatch
 
 The API base is same-origin by default (`VITE_API_BASE_URL` is empty). Only set it to a same-origin API prefix when changing the local proxy configuration; cross-origin access is intentionally not enabled.
 
+## v0.2.0 Phase A production deployment (pre-release closeout)
+
+The deployed application source is commit [`efbf1b261bc542e6eed68543a49821511bf95b6a`](https://github.com/vlad12-k/green-energy-dispatch-dashboard/commit/efbf1b261bc542e6eed68543a49821511bf95b6a). The release owner supplied a Render Dashboard readback showing the existing service **Live**, source `efbf1b2`, on the **Free** instance; the short source matches the full application SHA above. GitHub post-merge Actions run [40904135928](https://github.com/vlad12-k/green-energy-dispatch-dashboard/actions/runs/40904135928) passed all four jobs on that exact SHA. The production smoke command exited `0`. Apple Safari desktop simulation and live-data boundary acceptance passed at a wide viewport; mobile responsive acceptance is **NOT VERIFIED**. See [`docs/releases/v0.2.0-alpha.1.md`](docs/releases/v0.2.0-alpha.1.md) for full evidence and limitations. The `v0.2.0-alpha.1` tag is gated on merging the documentation PR and green post-merge CI; this closeout does not create it.
+
 ## v0.1.0 verified test and CI evidence (historical)
 
-The following records the published v0.1.0 state and predates the v0.2.0 Phase A candidate. It is retained as release evidence and does not describe a deployment of this branch.
+The following records the published v0.1.0 state only. It is retained as historical release evidence and does not describe the current v0.2.0 Phase A deployment.
 
 Post-merge GitHub Actions run [40193307594](https://github.com/vlad12-k/green-energy-dispatch-dashboard/actions/runs/40193307594) passed all four jobs on application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659`:
 
@@ -79,13 +83,13 @@ python scripts/smoke_staging.py --base-url https://green-energy-dispatch-dashboa
 
 It exited `0`: health was `ok`; the root and a deep SPA route returned the built app; three same-origin assets were served; the synthetic evaluation was comparison-eligible; and the tested live-data/docs routes were unavailable. The response values for that synthetic scenario were 2,875 baseline and 950 carbon-aware proxy units, a 1,925 `gCO2`-proxy-unit difference. Provenance remained `synthetic_scenario` / `simulation-only`, and the response explicitly made no real-world emissions claim. These are deterministic scenario proxies, not measured carbon savings.
 
-The owner-provided deployment log explicitly records checkout of application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main` and reports Live status. This is deployment-log evidence, not an independent readback of the service's current Dashboard state. The current Compute Plan and Auto-Deploy setting have not been confirmed here; the smoke test verifies endpoint behaviour, not provider-side settings. See [`docs/deployment/staging-runbook.md`](docs/deployment/staging-runbook.md) for the verification boundary.
+The owner-provided deployment log for v0.1.0 records checkout of application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main` and Live status at that time. This is historical deployment evidence, not the current service state; the v0.2.0 Phase A readback is summarised above. See [`docs/deployment/staging-runbook.md`](docs/deployment/staging-runbook.md) for the current verification boundary.
 
 The Docker build produces `frontend/dist` and the FastAPI application serves the built frontend when `SERVE_FRONTEND=true`; the public demo therefore uses one origin. In local development, Vite remains a separate server and proxies API requests. TypeScript API types are generated from FastAPI's OpenAPI model during the frontend build; interactive docs remain disabled in simulation-only runtime mode.
 
-## Read-only NESO API and dashboard section
+## v0.2.0 Phase A read-only NESO API and dashboard
 
-The v0.2.0 Phase A candidate exposes a public, read-only `GET /api/v1/energy/carbon-intensity` route for the configured NESO region (default GB region ID 13). The React panel shows the region, intensity, upstream unit, actual/forecast provenance, observed interval, retrieval time, age and freshness. It is not connected to either scheduling strategy, and the published v0.1.0 service is unchanged until any separately approved deployment.
+The deployed v0.2.0 Phase A application exposes a public, read-only `GET /api/v1/energy/carbon-intensity` route for the configured NESO region (default GB region ID 13). The React panel shows the region, intensity, upstream unit, actual/forecast provenance, observed interval, retrieval time, age and freshness. It is not connected to either scheduling strategy. A completed forecast is labelled stale rather than presented as a current reading; deployment and acceptance evidence is in [`docs/releases/v0.2.0-alpha.1.md`](docs/releases/v0.2.0-alpha.1.md).
 
 For a local read-only request:
 
