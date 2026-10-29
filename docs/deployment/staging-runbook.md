@@ -1,6 +1,6 @@
-# Staging deployment runbook
+# Render deployment runbook
 
-**Status:** the owner-provided deployment log explicitly records that the existing public Render service checked out application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main` and reached Live status. This establishes the logged deployment revision, not an independent readback of the currently active Dashboard state. The current Compute Plan and Auto-Deploy setting remain unconfirmed. The v0.2.0 Phase A branch candidate is not deployed; this runbook update does not authorise a new resource, setting change, Blueprint sync, or deployment. The v0.1.0 service and release remain unchanged.
+**Status:** v0.2.0 Phase A is deployed. The release owner supplied a current Render Dashboard readback for the existing public service: **Live**, source `efbf1b2`, **Free** instance, matching application commit `efbf1b261bc542e6eed68543a49821511bf95b6a`. This is owner-verified provider evidence, not an independent Dashboard readback by this documentation pass; `/health` does not expose a revision, and Auto-Deploy remains unverified. Production smoke exited `0`; Safari desktop acceptance passed at a wide viewport, while mobile responsive acceptance is **NOT VERIFIED**. The `v0.2.0-alpha.1` tag is deferred until the documentation PR is merged and post-merge CI is green. This runbook update does not authorise a new resource, setting change, Blueprint sync, billing change, or deployment.
 
 ## Decision and topology
 
@@ -11,20 +11,20 @@ Browser: https://green-energy-dispatch-dashboard.onrender.com
   GET / and client-side routes  ──> FastAPI serves frontend/dist/index.html
   GET /assets/*                ──> FastAPI serves built Vite assets
   POST /api/v1/simulations/ev-depot/evaluate ──> stateless synthetic evaluator
-  GET /api/v1/energy/carbon-intensity      ──> read-only configured NESO region (v0.2 candidate)
+  GET /api/v1/energy/carbon-intensity      ──> deployed read-only configured NESO region
   POST /api/v1/energy/carbon-intensity     ──> 405; Allow: GET; no upstream request
   Other /api/* routes                     ──> 404 in SIMULATION_ONLY_MODE
 ```
 
-The v0.2.0 candidate has the new route in code but has not been deployed. The published v0.1.0 service is unchanged. Its actual GET response is not exercised by the staging smoke test to avoid making an external NESO request; validate real data only in a bounded, explicitly authorised local/browser acceptance path.
+The v0.2.0 Phase A route is deployed; the v0.1.0 release files and tag remain historical and unchanged. The production smoke deliberately does not issue an upstream GET: it verifies that a POST to the read-only route returns `405` with `Allow: GET`. A separate bounded acceptance GET to the public NESO endpoint returned HTTP `200` for region 13, London, but only a completed stale forecast; it was not a current actual reading. See [`../releases/v0.2.0-alpha.1.md`](../releases/v0.2.0-alpha.1.md) for the recorded response and Safari evidence.
 
 The production Vite build uses an empty `VITE_API_BASE_URL`, so browser requests stay on the page's origin. This avoids CORS configuration, a second hostname, and browser credentials. The Render service provides an `onrender.com` hostname and managed TLS; no custom domain is required.
 
-The EV depot evaluator remains stateless. The Blueprint does not provision PostgreSQL, a persistent disk, or a NESO credential. The v0.2.0 API candidate reads public NESO data through its fixed allowlisted HTTPS origin and writes neither the scenario nor the live response to persistence. Do not add a database unless a later, explicitly scoped feature introduces durable application state.
+The EV depot evaluator remains stateless. The Blueprint does not provision PostgreSQL, a persistent disk, or a NESO credential. The deployed v0.2.0 API reads public NESO data through its fixed allowlisted HTTPS origin and writes neither the scenario nor the live response to persistence. Do not add a database unless a later, explicitly scoped feature introduces durable application state.
 
 ## Public-demo boundary
 
-- Set `SIMULATION_ONLY_MODE=true`; allow only synthetic `POST /api/v1/simulations/ev-depot/evaluate` and (for the v0.2.0 candidate) read-only `GET /api/v1/energy/carbon-intensity` under `/api`.
+- Set `SIMULATION_ONLY_MODE=true`; allow only synthetic `POST /api/v1/simulations/ev-depot/evaluate` and read-only `GET /api/v1/energy/carbon-intensity` under `/api`.
 - The NESO route uses only the fixed official HTTPS host, disables redirects, validates the response, caps response size at 64 KiB, and bounds the timeout to 30 seconds maximum (5 seconds by default). Its freshness-aware process cache lasts at most 30 seconds. Stale/error results are not publicly cached.
 - Disable debug and OpenAPI docs (`DEBUG=false`).
 - Bound the synthetic evaluator's request body to 65,536 bytes.
@@ -34,15 +34,15 @@ The EV depot evaluator remains stateless. The Blueprint does not provision Postg
 
 ## Provider cost and constraints
 
-The checked-in Blueprint specifies Render's **Free** web-service plan (`plan: free`): at the time the provider documentation was reviewed for this candidate it described **0.1 CPU and 512 MB RAM**. This is the Blueprint's intended target, not verification of the existing service's plan. It is a portfolio/demo tier, not a production availability target. Confirm current plan, quotas, workspace usage, billing state, and provider terms directly in the account before relying on any figure; this repository does not reveal whether a payment method or overage billing is configured.
+The release owner supplied a current Render Dashboard readback confirming the existing service uses the **Free** instance. The checked-in Blueprint also specifies `plan: free`, but names a different service and is not evidence of the existing service's settings. Provider documentation cited for this project described **0.1 CPU and 512 MB RAM** for a Free instance; these are documented limits, not measurements of the running instance. Free is a portfolio/demo tier, not a production availability target. Re-check current quotas, workspace usage, billing state, and provider terms before relying on any figure; this repository does not reveal whether a payment method or overage billing is configured.
 
 - Free services may cold-start after inactivity, have ephemeral filesystems, and are subject to workspace-level quotas and provider policy changes. The app is stateless and stores no user scenarios; that does not imply an availability or latency guarantee.
 - Bandwidth, build minutes, instance-hours, pricing, and overage rules can change and may be shared across a workspace. Review the current official Render pricing/limits and account Billing/Usage before relying on specific figures.
 - This repository neither inspects nor changes payment methods, spend limits, or workspace billing. Do not infer that overages cannot be charged or that a plan change is authorised.
 
-The published v0.1.0 service remains an intentionally limited portfolio demo: synthetic scenarios only, no public live NESO reading, physical dispatch, market trading, measured carbon savings, durable user state, or availability SLA. The v0.2.0 candidate adds a separate read-only regional display but is not deployed and does not change its scheduling behavior. If the existing service is confirmed to use the Free plan, its documented CPU/memory target, shared process-local rate limits, cold starts, instance restarts, and workspace quotas can make it slow or unavailable under concurrency, extended inactivity, or quota exhaustion. Do not present it as a continuously available production service.
+The deployed v0.2.0 Phase A service remains an intentionally limited portfolio demo: synthetic scheduling, a separate read-only public NESO display, no physical dispatch, market trading, measured carbon savings, durable user state, or availability SLA. Its confirmed Free instance, shared process-local rate limits, cold starts, restarts, and workspace quotas can constrain availability under concurrency, extended inactivity, or quota exhaustion. Do not present it as a continuously available production service. The live reading is display-only and does not change scheduler behaviour.
 
-References (provider documentation reviewed for this candidate; re-check for current terms):
+References (re-check current provider terms before any future operation):
 
 - [Render pricing](https://render.com/pricing)
 - [Render free-instance limitations](https://render.com/docs/free)
@@ -65,7 +65,7 @@ References (provider documentation reviewed for this candidate; re-check for cur
 
 Before any separately approved service update (no such update is part of this release):
 
-1. Verify that the target is the existing `green-energy-dispatch-dashboard` service. Compare its current active SHA with the owner-provided log record (`55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main`); confirm the Compute Plan, Auto-Deploy setting, workspace usage, and current provider limits. Do not change billing, add a payment method, or alter plan settings.
+1. Verify that the target is the existing `green-energy-dispatch-dashboard` service. Compare its current active SHA with the owner-provided closeout readback (`efbf1b261bc542e6eed68543a49821511bf95b6a` from `main`); refresh the current plan, Auto-Deploy setting, workspace usage, and provider limits in the Dashboard. The supplied readback confirms the Free instance, but not Auto-Deploy. Do not change billing, add a payment method, or alter plan settings.
 2. Inspect any linked Blueprint and Auto Sync state. Do not connect or sync `render.yaml` as part of this work; it names a different service. If any setting differs from the approved release intent, stop and ask the owner rather than changing it.
 
 For a future deployment, only after separate explicit owner approval:
@@ -80,9 +80,9 @@ For a future deployment, only after separate explicit owner approval:
    ```
 
    The script refuses non-loopback plain HTTP and URL credentials. It verifies health, the root and SPA history fallback, that each built frontend asset is served from the same origin, a real deterministic synthetic evaluation and its provenance/claim flags, and that a POST to the NESO route returns 405 with `Allow: GET` without issuing a GET upstream request. Other protected energy routes and debug docs remain unavailable. This read-only-method probe does not verify that live NESO data is currently retrievable.
-5. Record the deployed commit SHA, smoke output, health state, and any follow-up. Do not describe the synthetic scheduler as live-carbon-powered or as a trading service. The read-only panel only displays the public regional reading. A successful HTTP smoke is not a substitute for Apple Safari desktop/mobile visual acceptance.
+5. Record the deployed commit SHA, smoke output, health state, and any follow-up. Do not describe the synthetic scheduler as live-carbon-powered or as a trading service. The read-only panel only displays the public regional reading. Desktop Safari simulation and live-data boundary acceptance passed at a wide viewport; mobile responsive acceptance is **NOT VERIFIED**. See [`../releases/v0.2.0-alpha.1.md`](../releases/v0.2.0-alpha.1.md). A successful HTTP smoke is not a substitute for mobile visual acceptance.
 
-The `CI and security` workflow builds the Docker image without publishing it and runs the simulation-only smoke against a loopback-only container constrained to **512 MB RAM and 0.1 CPU**, matching the intended Free-plan target documented for this candidate. A passing smoke is evidence for that bounded workload only; it is not a provider-plan verification, peak-memory measurement, load test, or guarantee against OOM under larger inputs or concurrent traffic. The workflow also runs frontend/backend checks and dependency/secret scans. Its Trivy checks are scoped to HIGH/CRITICAL findings; that is not an all-severity zero-vulnerability claim.
+The `CI and security` workflow builds the Docker image without publishing it and runs the simulation-only smoke against a loopback-only container constrained to **512 MB RAM and 0.1 CPU**, approximating the documented Free-instance limits. A passing smoke is evidence for that bounded workload only; it is not a provider-plan verification, peak-memory measurement, load test, or guarantee against OOM under larger inputs or concurrent traffic. The workflow also runs frontend/backend checks and dependency/secret scans. Its Trivy checks are scoped to HIGH/CRITICAL findings; that is not an all-severity zero-vulnerability claim.
 
 ## Failure and rollback
 
@@ -97,4 +97,4 @@ There are no application-data migrations or persisted user scenarios in this des
 
 ## Separate follow-up
 
-`frontend/src/components/ResultsPanel.tsx` has a known scroll-region accessibility follow-up. It is intentionally not part of this deployment candidate and does not support a claim of complete WCAG compliance.
+`frontend/src/components/ResultsPanel.tsx` has a known scroll-region accessibility follow-up. It remains outside v0.2.0 Phase A and does not support a claim of complete WCAG compliance.
