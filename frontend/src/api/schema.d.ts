@@ -347,18 +347,29 @@ export interface components {
         CarbonIntensityResponse: {
             /** Age Seconds */
             age_seconds: number;
+            /**
+             * Fresh Until
+             * Format: date-time
+             */
+            fresh_until: string;
             /** Intensity Gco2 Per Kwh */
             intensity_gco2_per_kwh: number;
             /** Intensity Index */
             intensity_index: string;
             /** Interval Lag Seconds */
             interval_lag_seconds: number;
-            /** Interval Status */
-            interval_status: string;
+            /**
+             * Interval Status
+             * @enum {string}
+             */
+            interval_status: "upcoming" | "in_progress" | "completed";
             /** Is Fresh */
             is_fresh: boolean;
-            /** Measurement Type */
-            measurement_type: string;
+            /**
+             * Measurement Type
+             * @enum {string}
+             */
+            measurement_type: "actual" | "forecast";
             /**
              * Observed At
              * Format: date-time
@@ -373,10 +384,18 @@ export interface components {
              * Format: date-time
              */
             retrieved_at: string;
-            /** Source Api */
-            source_api: string;
+            /**
+             * Source Api
+             * @constant
+             */
+            source_api: "neso-carbon-intensity-api";
             /** Source Url */
             source_url: string;
+            /**
+             * Units
+             * @constant
+             */
+            units: "gCO2/kWh";
             /**
              * Valid Until
              * Format: date-time

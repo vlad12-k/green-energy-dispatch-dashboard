@@ -2,17 +2,18 @@
 
 ## Purpose and safety boundary
 
-The Operator Dashboard is a locally runnable interface for editing and evaluating **synthetic EV-depot scenarios**. It submits the scenario to `POST /api/v1/simulations/ev-depot/evaluate`; FastAPI validates the request and calls the existing Python scheduler. The browser does not reproduce scheduling or carbon-proxy calculations.
+The Operator Dashboard is a locally runnable interface for editing and evaluating **synthetic EV-depot scenarios** and, in the v0.2.0 Phase A candidate, inspecting a separate live NESO carbon-intensity reading. The synthetic scenario is submitted to `POST /api/v1/simulations/ev-depot/evaluate`; FastAPI validates the request and calls the existing Python scheduler. The browser does not reproduce scheduling or carbon-proxy calculations. The live section uses its own read-only `GET /api/v1/energy/carbon-intensity` request and never sends live values into the scheduler.
 
-The simulation is advisory and price-free. It has no database writes, no live NESO input, no charger or hardware connection, no electricity trading, no real-world emissions claim, and no global-optimality guarantee. `complete_schedule_not_demonstrated` means that the selected heuristic did not produce a complete schedule; it is not a proof of infeasibility. The dashboard labels the source as synthetic and keeps the separate read-only NESO endpoint disconnected.
+The synthetic simulation is advisory and price-free. It has no database writes, live NESO inputs, charger or hardware connection, electricity trading, real-world emissions claim, or global-optimality guarantee. `complete_schedule_not_demonstrated` means that the selected heuristic did not produce a complete schedule; it is not a proof of infeasibility. The new live panel is display-only: its separate read-only endpoint is not connected to either scheduler strategy.
 
-The same simulation-only workflow is available at the [public demo](https://green-energy-dispatch-dashboard.onrender.com). In the Docker deployment, the production-built Vite assets and FastAPI API are served from one origin. The hosted service exposes only the synthetic evaluation route under `/api`; it does not enable the separate NESO/PostgreSQL capabilities described elsewhere in the repository. The demo has no user authentication and is not a production operations service.
+The published v0.1.0 public demo remains simulation-only and exposes only its existing synthetic evaluation route. The v0.2.0 Phase A branch adds the read-only NESO endpoint to the application candidate, but it has not been deployed. In the Docker deployment, production-built Vite assets and FastAPI are served from one origin; the demo has no user authentication and is not a production operations service.
 
 ## Requirements and startup
 
 - Python 3.12 or newer with the repository runtime requirements installed.
 - Node.js 22.12 or newer and npm.
-- No database, cloud account, NESO access, credentials, or external UI service.
+- No database, cloud account, or external UI service.
+- No credentials are needed. Synthetic scheduling works offline; the live panel requires outbound HTTPS from FastAPI to the public NESO API and degrades to an explicit unavailable state when that request fails.
 
 From the repository root, start the API:
 
@@ -39,6 +40,8 @@ Open <http://127.0.0.1:5173>. Vite serves the frontend and proxies `/api` and `/
 5. Review the **Immediate Baseline** and **Carbon-Aware Heuristic** schedules, allocation segments, interval-average and peak depot power, required/delivered/unmet energy, constraint checks and comparison eligibility.
 6. Select **Export JSON** to download the current scenario inputs. Exports contain no result data or credentials.
 
+The **Live carbon intensity** panel loads independently when the page opens and refreshes every 60 seconds; use its **Refresh** control for a manual request. It labels region, intensity and raw reported units, actual/forecast source, observed interval, retrieval time, and age/freshness. A stale completed forecast or a failed refresh is explicitly marked; when no valid reading exists, the panel shows unavailable without substituting a value. This read-only section does not alter synthetic form values or either scheduler strategy.
+
 After any edit, prior results are hidden until that exact input version has been evaluated. API validation errors are rendered next to the associated fields when FastAPI reports a field location; server-side failures are presented without exposing internal exception details.
 
 ## Reading the results
@@ -57,6 +60,8 @@ After any edit, prior results are hidden until that exact input version has been
 `POST /api/v1/simulations/ev-depot/evaluate` accepts the existing `CarbonAwareDepotScenario` fields and returns `CarbonAwareSimulationResult`. The HTTP input adapter accepts ISO-8601 timestamp strings and delegates all other domain constraints to the existing strict Pydantic scenario model. The response includes the existing strategies, detailed segment allocations, load and constraint results, provenance, and comparison fields.
 
 The API enforces a maximum of 96 intervals and 50 vehicles, and retains the existing synthetic-only provenance rules. Invalid inputs return FastAPI's structured HTTP 422 validation response. The endpoint is synchronous, bounded, stateless, and does not fetch NESO data or access persistence.
+
+The independent `GET /api/v1/energy/carbon-intensity` contract returns one validated reading for the configured `NESO_REGION_ID` (default 13), including raw NESO `gCO2/kWh` units, actual/forecast provenance, observed interval, retrieval timestamp, age, freshness and source URL. It takes no request body or caller-controlled region/URL, does not persist data, and has no connection to the simulation request path. It reuses the existing client, with `NESO_API_BASE_URL` restricted to `https://api.carbonintensity.org.uk`, `NESO_TIMEOUT_SECONDS` bounded to 30 seconds, a maximum 64 KiB upstream response and an at-most-30-second freshness-aware process cache. The public API and browser client mark unavailable/error states explicitly; stale/error responses are not publicly cached.
 
 TypeScript schema definitions are generated from the FastAPI OpenAPI document:
 
@@ -81,7 +86,7 @@ npm run build
 npm run test:e2e
 ```
 
-Vitest/Testing Library cover editing, import, example reset, validation feedback, API error handling, result rendering, and stale-result prevention. Playwright checks the initial keyboard tab order and visible focus outline, starts the real FastAPI application and Vite, then edits inputs, calls the genuine scheduler endpoint, checks returned proxy values, exports JSON, and checks the mobile viewport for horizontal overflow. The E2E test is not API-mocked.
+Vitest/Testing Library cover editing, import, example reset, validation feedback, API error handling, result rendering, stale-result prevention, the read-only carbon-intensity client, live freshness/provenance/error states, and separation from synthetic requests. Playwright checks the initial keyboard tab order and visible focus outline, starts the real FastAPI application and Vite, then edits inputs, calls the genuine scheduler endpoint, checks returned proxy values, exports JSON, and checks the mobile viewport for horizontal overflow. The E2E test is not API-mocked and does not substitute for the requested Apple Safari acceptance.
 
 Backend tests:
 
@@ -97,10 +102,10 @@ Captured from the current dispatch workbench, running Vite frontend, and FastAPI
 
 ![Current dispatch workbench after a real synthetic simulation](screenshots/ev-depot-workbench-after-1440x900.png)
 
-This image is an existing local Vite/FastAPI simulation capture, not a capture of the Render demo or a Safari acceptance screenshot. Its provenance and original Chrome/Playwright QA evidence remain in the linked workbench design record; no live Safari screenshots have been captured for this release package.
+This image is an existing local Vite/FastAPI synthetic-simulation capture. It predates the v0.2.0 live-data section and does not show the new panel; it is not a capture of the Render demo or Apple Safari acceptance evidence.
 
 ## Implemented versus future work
 
-Implemented: scenario form, bounded local JSON import/export, synthetic input provenance, real scheduler API integration, result tables/charts, validation/error handling, stale-result prevention, responsive styling, automated component/E2E checks, and a limited simulation-only Docker demo serving the built frontend from FastAPI.
+Implemented: scenario form, bounded local JSON import/export, synthetic input provenance, real scheduler API integration, separate read-only NESO client/API integration for one configured region, live panel with provenance/freshness and stale/unavailable states, result tables/charts, validation/error handling, stale-result prevention, responsive styling, automated component/client/regression checks, and a limited simulation-only Docker application candidate serving the built frontend from FastAPI. The v0.2.0 candidate has not been deployed; the published v0.1.0 service remains unchanged.
 
-Not implemented: live NESO-to-scheduler adapter, cross-origin deployment, user accounts or authentication, production-grade availability/monitoring/backup operations, live hardware control, electricity trading, cost/tariff evaluation, infeasibility proof beyond existing evaluator semantics, or global schedule optimisation. The public demo does not establish Safari visual acceptance or production readiness.
+Not implemented: live NESO-to-scheduler integration, cross-origin deployment, user accounts or authentication, production-grade availability/monitoring/backup operations, live hardware control, electricity trading, cost/tariff evaluation, infeasibility proof beyond existing evaluator semantics, or global schedule optimisation. Neither the public v0.1.0 demo nor this local candidate establishes production readiness.

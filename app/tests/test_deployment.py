@@ -2,7 +2,9 @@
 
 import json
 from collections.abc import Iterable
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from typing import SupportsIndex
 
 from httpx import ASGITransport, AsyncClient
@@ -63,6 +65,87 @@ def test_smoke_base_url_accepts_loopback_http_and_rejects_path_prefix() -> None:
     assert smoke_staging._validate_base_url("http://127.0.0.1:18000/") == "http://127.0.0.1:18000"
     with pytest.raises(ValueError, match="must not contain a path"):
         smoke_staging._validate_base_url("https://demo.example.test/subpath")
+
+
+def test_smoke_request_does_not_follow_cross_origin_redirect() -> None:
+    target_requests = 0
+
+    class TargetHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            nonlocal target_requests
+            target_requests += 1
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), TargetHandler) as target_server:
+
+        class RedirectHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self.send_response(302)
+                self.send_header(
+                    "Location",
+                    f"http://127.0.0.1:{target_server.server_port}/private",
+                )
+                self.end_headers()
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler) as source_server:
+            threads = [
+                Thread(target=server.serve_forever, daemon=True)
+                for server in (target_server, source_server)
+            ]
+            for thread in threads:
+                thread.start()
+            try:
+                status, _headers, _body = smoke_staging._request(
+                    f"http://127.0.0.1:{source_server.server_port}", "/health"
+                )
+            finally:
+                source_server.shutdown()
+                target_server.shutdown()
+                for thread in threads:
+                    thread.join(timeout=2)
+
+    assert status == 302
+    assert target_requests == 0
+
+
+def test_smoke_runner_validates_base_url_before_any_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        smoke_staging,
+        "_wait_for_health",
+        lambda *_args: pytest.fail("invalid base URLs must be rejected before probing"),
+    )
+
+    with pytest.raises(ValueError, match=r"absolute HTTP\(S\)"):
+        smoke_staging.run_smoke("file:///tmp")
+
+
+def test_smoke_verifies_read_only_neso_route_without_fetching_live_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str, dict[str, object]]] = []
+
+    def request(base_url: str, path: str, **kwargs: object):
+        calls.append((base_url, path, kwargs))
+        return 405, {"Allow": "GET"}, b'{"detail":"Method not allowed"}'
+
+    monkeypatch.setattr(smoke_staging, "_request", request)
+
+    smoke_staging._verify_read_only_neso_route("https://demo.example.test")
+
+    assert calls == [(
+        "https://demo.example.test",
+        "/api/v1/energy/carbon-intensity",
+        {"method": "POST", "body": b"{}"},
+    )]
 
 
 def test_smoke_extracts_production_frontend_assets() -> None:
@@ -157,15 +240,7 @@ def test_frontend_profile_fails_fast_when_build_is_missing(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_simulation_only_profile_exposes_only_synthetic_evaluation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def unexpected_neso_call(**_kwargs: object) -> object:
-        pytest.fail("the simulation-only app must not construct a NESO client")
-
-    monkeypatch.setattr(
-        "app.api.v1.energy.NesoCarbonIntensityClient", unexpected_neso_call
-    )
+async def test_simulation_only_profile_preserves_synthetic_evaluation_and_hides_policy_route() -> None:
     application = create_app(
         application_settings=Settings(simulation_only_mode=True)
     )
@@ -175,7 +250,6 @@ async def test_simulation_only_profile_exposes_only_synthetic_evaluation(
             "/api/v1/simulations/ev-depot/evaluate",
             json=_synthetic_smoke_scenario(),
         )
-        upstream_endpoint = await client.get("/api/v1/energy/carbon-intensity")
         policy_endpoint = await client.post(
             "/api/v1/energy/carbon-gate",
             json={"carbon_intensity_gco2_per_kwh": 100.0},
@@ -190,7 +264,6 @@ async def test_simulation_only_profile_exposes_only_synthetic_evaluation(
     assert result["absolute_carbon_proxy_reduction"] == 1_925
     assert result["input_provenance"]["source_classification"] == "synthetic_scenario"
     assert result["real_world_emissions_reduction_claimed"] is False
-    assert upstream_endpoint.status_code == 404
     assert policy_endpoint.status_code == 404
     assert unknown_endpoint.status_code == 404
 

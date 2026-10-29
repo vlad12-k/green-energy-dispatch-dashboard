@@ -2,19 +2,45 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
-from urllib.parse import urljoin
+from time import monotonic
+from typing import Any, Callable, Literal
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
-from app.services.intensity_units import LIVE_NESO_SOURCE_API as SOURCE_API
+from app.services.intensity_units import LIVE_NESO_SOURCE_API as LIVE_SOURCE_API
 from app.services.intensity_units import IntensityUnit, units_for_source_api
 
+SOURCE_API: Literal["neso-carbon-intensity-api"] = LIVE_SOURCE_API
 DEFAULT_BASE_URL = "https://api.carbonintensity.org.uk"
+ALLOWED_NESO_API_HOST = "api.carbonintensity.org.uk"
+NESO_CACHE_TTL_SECONDS = 30
+MAX_NESO_TIMEOUT_SECONDS = 30.0
+MAX_NESO_RESPONSE_BYTES = 64 * 1024
+
+
+def is_allowed_neso_base_url(base_url: str) -> bool:
+    """Accept only the official HTTPS origin, without credentials or URL paths."""
+    try:
+        parsed = urlsplit(base_url)
+        return (
+            parsed.scheme == "https"
+            and parsed.hostname == ALLOWED_NESO_API_HOST
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path in ("", "/")
+            and not parsed.query
+            and not parsed.fragment
+        )
+    except ValueError:
+        return False
 
 
 class NesoAPIError(RuntimeError):
@@ -39,14 +65,14 @@ class CarbonIntensityReading:
     """A region-specific reading with time validity and source provenance."""
 
     intensity_gco2_per_kwh: float
-    measurement_type: str
+    measurement_type: Literal["actual", "forecast"]
     region_id: int
     region_name: str
     intensity_index: str
     observed_at: datetime
     valid_until: datetime
     retrieved_at: datetime
-    interval_status: str
+    interval_status: Literal["upcoming", "in_progress", "completed"]
     interval_lag_seconds: float
     is_fresh: bool
     age_seconds: float
@@ -56,6 +82,22 @@ class CarbonIntensityReading:
     @property
     def units(self) -> IntensityUnit:
         return units_for_source_api(self.source_api)
+
+
+def freshness_deadline(
+    reading: CarbonIntensityReading,
+    *,
+    max_age_seconds: int,
+) -> datetime:
+    """Return the reading's freshness deadline without changing its shared model."""
+    remaining_age = max(0.0, max_age_seconds - reading.age_seconds)
+    try:
+        deadline = reading.retrieved_at + timedelta(seconds=remaining_age)
+    except OverflowError:
+        deadline = datetime.max.replace(tzinfo=UTC)
+    if reading.measurement_type == "forecast":
+        deadline = min(deadline, reading.valid_until)
+    return deadline
 
 
 def _parse_timestamp(value: Any, field_name: str) -> datetime:
@@ -127,7 +169,9 @@ def parse_regional_response(
     index = intensity.get("index")
     if not isinstance(index, str) or not index:
         raise ValueError("intensity index must be a non-empty string")
-    measurement_type = "actual" if actual is not None else "forecast"
+    measurement_type: Literal["actual", "forecast"] = (
+        "actual" if actual is not None else "forecast"
+    )
     region_name = region.get("shortname")
     if not isinstance(region_name, str) or not region_name:
         raise ValueError("region shortname must be a non-empty string")
@@ -147,7 +191,7 @@ def parse_regional_response(
         )
 
     if retrieved_at < observed_at:
-        interval_status = "upcoming"
+        interval_status: Literal["upcoming", "in_progress", "completed"] = "upcoming"
     elif retrieved_at >= valid_until:
         interval_status = "completed"
     else:
@@ -185,12 +229,19 @@ class NesoCarbonIntensityClient:
         timeout_seconds: float = 5.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        if not base_url.startswith("https://"):
-            raise ValueError("NESO API base URL must use HTTPS")
+        if not is_allowed_neso_base_url(base_url):
+            raise ValueError(
+                "NESO API base URL must use the allowlisted HTTPS host "
+                f"{ALLOWED_NESO_API_HOST} without credentials or a path"
+            )
         if isinstance(region_id, bool) or region_id <= 0:
             raise ValueError("region_id must be a positive integer")
-        if max_age_seconds <= 0 or timeout_seconds <= 0:
-            raise ValueError("freshness limit and timeout must be positive")
+        if (
+            max_age_seconds <= 0
+            or not math.isfinite(timeout_seconds)
+            or not 0 < timeout_seconds <= MAX_NESO_TIMEOUT_SECONDS
+        ):
+            raise ValueError("freshness limit must be positive and timeout must be bounded")
         self.base_url = base_url.rstrip("/")
         self.region_id = region_id
         self.max_age_seconds = max_age_seconds
@@ -207,19 +258,59 @@ class NesoCarbonIntensityClient:
     async def fetch_raw(self) -> tuple[Any, datetime, str]:
         """Fetch one raw regional JSON response with retrieval-time provenance."""
         try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout_seconds,
-                transport=self.transport,
-                follow_redirects=False,
-            ) as client:
-                response = await client.get(
-                    self.endpoint_url,
-                    headers={"Accept": "application/json"},
-                )
-                response.raise_for_status()
-                payload = response.json()
-                retrieved_at = datetime.now(UTC)
-        except httpx.TimeoutException as exc:
+            async with asyncio.timeout(self.timeout_seconds):
+                async with httpx.AsyncClient(
+                    timeout=self.timeout_seconds,
+                    transport=self.transport,
+                    follow_redirects=False,
+                ) as client:
+                    async with client.stream(
+                        "GET",
+                        self.endpoint_url,
+                        headers={
+                            "Accept": "application/json",
+                            "Accept-Encoding": "identity",
+                        },
+                    ) as response:
+                        response.raise_for_status()
+                        content_encoding = response.headers.get(
+                            "Content-Encoding", "identity"
+                        ).strip().lower()
+                        if content_encoding not in {"", "identity"}:
+                            raise NesoAPIError(
+                                "NESO Carbon Intensity API returned unsupported "
+                                "content encoding"
+                            )
+                        content_length = response.headers.get("Content-Length")
+                        if content_length is not None:
+                            try:
+                                if int(content_length) > MAX_NESO_RESPONSE_BYTES:
+                                    raise NesoAPIError(
+                                        "NESO Carbon Intensity API response exceeds "
+                                        "the 64 KiB limit"
+                                    )
+                            except ValueError:
+                                pass
+                        body = bytearray()
+                        if response.is_stream_consumed:
+                            raw_content = response.content
+                            if len(raw_content) > MAX_NESO_RESPONSE_BYTES:
+                                raise NesoAPIError(
+                                    "NESO Carbon Intensity API response exceeds "
+                                    "the 64 KiB limit"
+                                )
+                            body.extend(raw_content)
+                        else:
+                            async for chunk in response.aiter_raw():
+                                if len(chunk) > MAX_NESO_RESPONSE_BYTES - len(body):
+                                    raise NesoAPIError(
+                                        "NESO Carbon Intensity API response exceeds "
+                                        "the 64 KiB limit"
+                                    )
+                                body.extend(chunk)
+                        payload = json.loads(body)
+                        retrieved_at = datetime.now(UTC)
+        except (TimeoutError, httpx.TimeoutException) as exc:
             raise NesoAPIError(
                 "NESO Carbon Intensity API request timed out", retryable=True
             ) from exc
@@ -253,3 +344,57 @@ class NesoCarbonIntensityClient:
             )
         except ValueError as exc:
             raise NesoAPIError(f"NESO Carbon Intensity API data rejected: {exc}") from exc
+
+
+class CachedNesoCarbonIntensityReader:
+    """Bounded, process-local cache for the public read-only dashboard feed."""
+
+    def __init__(
+        self,
+        client: NesoCarbonIntensityClient,
+        *,
+        cache_ttl_seconds: float = NESO_CACHE_TTL_SECONDS,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        if (
+            not math.isfinite(cache_ttl_seconds)
+            or not 0 < cache_ttl_seconds <= 300
+        ):
+            raise ValueError("NESO cache TTL must be between 0 and 300 seconds")
+        self._client = client
+        self._cache_ttl_seconds = cache_ttl_seconds
+        self._clock = clock
+        self._cached_reading: CarbonIntensityReading | None = None
+        self._expires_at = 0.0
+        self._lock = asyncio.Lock()
+
+    @property
+    def max_age_seconds(self) -> int:
+        """Expose the client freshness policy for API response metadata."""
+        return self._client.max_age_seconds
+
+    async def fetch_latest(self) -> CarbonIntensityReading:
+        """Return a fresh cache entry or fetch and cache validated NESO evidence."""
+        if self._cached_reading is not None and self._clock() < self._expires_at:
+            return self._cached_reading
+
+        async with self._lock:
+            if self._cached_reading is not None and self._clock() < self._expires_at:
+                return self._cached_reading
+            reading = await self._client.fetch_latest()
+            self._cached_reading = reading
+            fresh_until = freshness_deadline(
+                reading,
+                max_age_seconds=self._client.max_age_seconds,
+            )
+            remaining_freshness = max(
+                0.0,
+                (fresh_until - datetime.now(UTC)).total_seconds(),
+            )
+            cache_lifetime = (
+                min(self._cache_ttl_seconds, remaining_freshness)
+                if reading.is_fresh
+                else 0.0
+            )
+            self._expires_at = self._clock() + cache_lifetime
+            return reading

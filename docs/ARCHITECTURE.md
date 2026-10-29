@@ -2,9 +2,11 @@
 
 ## Product boundary
 
-Green Energy Dispatch is a UK energy-software **portfolio prototype**, not an operational dispatch platform. The repository contains a read-only NESO Carbon Intensity adapter, optional PostgreSQL evidence storage and collector, deterministic EV-depot scheduling strategies, synthetic evaluation tools, and a React operator dashboard.
+Green Energy Dispatch is a UK energy-software **portfolio prototype**, not an operational dispatch platform. The repository contains the read-only NESO Carbon Intensity client, optional PostgreSQL evidence storage and collector, deterministic EV-depot scheduling strategies, synthetic evaluation tools, and a React operator dashboard.
 
-The public demo at <https://green-energy-dispatch-dashboard.onrender.com> is narrower: a Docker-built React/Vite frontend and FastAPI are served from one origin. Its simulation-only boundary accepts a bounded synthetic evaluation; it does not feed NESO data into the scheduler, persist submitted scenarios, control a charger, or make market decisions. Synthetic carbon proxies are not measurements or verified emissions outcomes.
+The published v0.1.0 public demo at <https://green-energy-dispatch-dashboard.onrender.com> remains narrower: a Docker-built React/Vite frontend and FastAPI are served from one origin. Its simulation-only boundary accepts a bounded synthetic evaluation; it does not feed NESO data into the scheduler, persist submitted scenarios, control a charger, or make market decisions. Synthetic carbon proxies are not measurements or verified emissions outcomes.
+
+The v0.2.0 Phase A feature branch adds a read-only `GET /api/v1/energy/carbon-intensity` route and a separate live dashboard panel that reuses the existing NESO client. The panel is isolated from synthetic scheduler inputs and persistence. This branch has not been deployed; the v0.1.0 release and running public service are unchanged unless a later deployment is separately approved.
 
 The owner-provided deployment log explicitly records that the existing service checked out application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659` from `main` and reached Live status. This records the deployment event; it is not an independent readback of the service's current Dashboard state. The current Compute Plan and Auto-Deploy state remain unconfirmed. The diagram and repository configuration describe application topology, not proof of provider-side settings.
 
@@ -12,7 +14,7 @@ The owner-provided deployment log explicitly records that the existing service c
 
 ```mermaid
 flowchart TB
-  subgraph Demo["Existing public simulation-only demo"]
+  subgraph Demo["Published v0.1.0 simulation-only demo"]
     Browser["Browser: React and Vite production build"]
     Service["Existing Render Docker web service<br/>one public origin"]
     API["FastAPI serves index.html, assets and SPA fallback"]
@@ -32,6 +34,18 @@ flowchart TB
     Compare --> Browser
   end
 
+  subgraph Candidate["v0.2.0 Phase A branch candidate (not deployed)"]
+    LiveBrowser["React live-data section"]
+    LiveAPI["FastAPI read-only endpoint<br/>GET /api/v1/energy/carbon-intensity"]
+    LiveGuard["GET-only, bodyless route guard<br/>process-local rate bucket in all modes"]
+    CachedReader["Existing NESO client<br/>validation + bounded cache"]
+    NESOFeed["Official NESO Carbon Intensity API"]
+    LiveBrowser -->|"same-origin GET"| LiveAPI
+    LiveAPI --> LiveGuard
+    LiveGuard --> CachedReader
+    CachedReader -->|"allowlisted HTTPS"| NESOFeed
+  end
+
   subgraph Local["Separate repository capabilities; not connected to the public scheduler"]
     NESO["NESO Carbon Intensity API<br/>read-only HTTPS"] --> Adapter["Local FastAPI adapter"]
     Adapter --> Clients["Local API clients"]
@@ -47,11 +61,11 @@ The Docker build compiles the Vite application and copies `frontend/dist` into t
 | Component | Responsibility | Status and boundary |
 |---|---|---|
 | FastAPI health route | `GET /health` | Implemented; reports application health, not the deployed source revision. |
-| Public simulation guard | Exact API route/method allowlist, request-size limit (65,536 bytes), process-local rolling rate limit (60 requests/minute by default) | Implemented for simulation-only mode. The in-memory rate limit is not coordinated across instances and resets on process restart. |
+| Public demo guard | Exact route/method allowlist, simulation request-size limit (65,536 bytes), separate process-local rolling rate buckets (60 requests/minute by default) | v0.2.0 candidate preserves synthetic `POST` and adds read-only NESO `GET`; buckets are shared within a process, not coordinated across instances, and reset on restart. Published v0.1.0 deployment remains unchanged. |
 | Simulation API | `POST /api/v1/simulations/ev-depot/evaluate` | Implemented; stateless, Pydantic-validated, synthetic-only, with no database or upstream calls. |
 | EV-depot strategies | Immediate Baseline and bounded Carbon-Aware Heuristic | Implemented; advisory simulation, not a global optimiser or proof of infeasibility. |
 | React/Vite dashboard | Scenario editing, JSON import/export, API-backed comparisons, charts and accessible tables | Implemented; production build is served by FastAPI in the Docker demo, while local development uses Vite. |
-| NESO adapter | Read-only HTTPS regional request, parsing, provenance, freshness, bounded timeout and upstream error handling | Implemented as a separate local/API capability; not used by the public scheduler. The public smoke test verified the documented live-data routes return 404. |
+| Read-only NESO API | `GET /api/v1/energy/carbon-intensity` | v0.2.0 candidate reads the configured region through the existing NESO client, with strict host/response validation, bounded timeout/cache, freshness and provenance. A public smoke test checks the method boundary without making an upstream GET. Not deployed; not connected to scheduling or persistence. |
 | PostgreSQL evidence store and replay | Immutable source evidence, normalised observations, explicit migrations, one-shot ingestion and offline replay | Implemented as optional local components; not provisioned for the public simulation demo. |
 | NESO collector | Standalone opt-in polling, bounded retries, persisted run/attempt status, gap reporting and graceful stop | Implemented for local use; separate process, not a production scheduler and not part of the public demo. |
 | Historical datasets and baselines | Deterministic exports and chronological persistence/seasonal-naive evaluation | Framework implemented; the previously inspected project database had no observations, so no genuine historical forecast evaluation is claimed. |
@@ -76,7 +90,7 @@ The regional endpoint provides a limited latest response, not a complete histori
 
 The project-local PostgreSQL database inspected for this milestone was `ged` on the local development service. It had only `alembic_version` at revision `0001_neso_evidence`; `raw_payloads` and `carbon_observations` did not exist, so it exposed **zero historical observations** (zero actuals and zero forecasts) and no real-data period for forecast evaluation. This is a time-of-inspection snapshot, not a claim about other databases or later collection runs. Fixtures used in automated tests are synthetic, explicitly test-only examples and their metrics are not forecast-performance evidence.
 
-The historical dataset builder reads validated, normalised observations joined to their raw-payload provenance. It exports one requested region, converts interval and retrieval timestamps to UTC, and derives units from the persisted source API identifier without numerical conversion: the existing live NESO API retains its established `gCO2e/kWh` label, while the NESO forecast archive is `gCO2/kWh`. Each CSV and JSON observation carries its own unit. Dataset and availability metadata expose `units: null` plus per-unit/per-source summaries when exported rows contain multiple units; actual revisions in different units cannot be collapsed into one canonical interval. Rejected payloads are counted but never emitted as accepted dataset rows. Canonical actual selection, persistence and seasonal-naive source selection share the same revision precedence: latest eligible retrieval time, then lexicographically greatest payload SHA-256, then greatest raw-payload ID. The canonical JSON hash also retains all accepted actual revision evidence for as-of-time evaluation. Forecast records are retained separately by retrieval. The manifest reports duplicate/conflicting actual revisions, missing UTC half-hour bins, actual/forecast coverage and contiguous actual spans. Missing intervals are not interpolated.
+The historical dataset builder reads validated, normalised observations joined to their raw-payload provenance. It exports one requested region, converts interval and retrieval timestamps to UTC, and derives units from the persisted source API identifier without numerical conversion: persisted observations for the live NESO API retain the established `gCO2e/kWh` mapping, while the NESO forecast archive is `gCO2/kWh`. The v0.2.0 dashboard response separately preserves raw live NESO `gCO2/kWh`; it does not convert values or change the persisted-observation mapping. Each CSV and JSON observation carries its own unit. Dataset and availability metadata expose `units: null` plus per-unit/per-source summaries when exported rows contain multiple units; actual revisions in different units cannot be collapsed into one canonical interval. Rejected payloads are counted but never emitted as accepted dataset rows. Canonical actual selection, persistence and seasonal-naive source selection share the same revision precedence: latest eligible retrieval time, then lexicographically greatest payload SHA-256, then greatest raw-payload ID. The canonical JSON hash also retains all accepted actual revision evidence for as-of-time evaluation. Forecast records are retained separately by retrieval. The manifest reports duplicate/conflicting actual revisions, missing UTC half-hour bins, actual/forecast coverage and contiguous actual spans. Missing intervals are not interpolated.
 
 The evaluation CLI uses a chronological fraction split or an explicit timezone-aware cutoff, splitting all revisions of an interval together. Fraction splits keep at least one unique interval on each side when two or more are available. It reports persistence and seasonal-naive baselines for configured half-hour horizons, MAE/RMSE in the report’s explicit unit, sample counts, target period and skipped inputs. Actual observations from mixed unit contracts are marked insufficient and are never compared or converted. Evaluation is rolling-origin within the holdout: forecast origins earlier than the first test interval are excluded, so the first `horizon` test targets are warm-up rather than scored samples. An earlier test-period actual may be used at a later test forecast origin, but only when its interval has ended and its retrieval time is no later than that origin. The latest eligible revision is chosen for each source interval using the same retrieval/hash/raw-ID precedence as canonical dataset selection; future actuals and future retrievals cannot be used. The JSON report lists requested and adequately evaluated horizons/methods and an unavailable reason for each method/horizon pair without valid samples. The evaluated horizon and method lists are independent summaries: each includes a value when at least one corresponding pair meets the sample threshold; use the pair-level result, unavailable and insufficient-sample entries for exact coverage. Metrics are retained when computed, including those below the configurable minimum evaluation sample count (default two), and identified in `insufficient_sample_evaluations`. `sufficient_data` is true only when every requested pair meets that sample threshold and the training/test requirements are met. These explainable baselines are an evaluation framework, not a trained production model.
 
@@ -85,6 +99,8 @@ Use `python -m app.build_historical_dataset --region-id 13 --output artifacts/re
 The official NESO Regional Carbon Intensity Forecast archive is forecast-only: its rows have target timestamps but no original forecast issue time, and the inspected London API historical response also contained forecasts rather than regional actuals. A bounded, read-only-by-default DataStore acquisition command is available; `--persist` explicitly stores source evidence and forecast rows using the existing schema. These retrospectively acquired forecasts are not valid historical as-of inputs, and the archive cannot supply actual targets for genuine regional forecast evaluation. Source evidence, licence attribution, coverage observations and commands are documented in [`NESO_HISTORICAL_ACQUISITION.md`](NESO_HISTORICAL_ACQUISITION.md). No user-managed database is needed by the operator dashboard. The dashboard milestone's full integration suite was run against a temporary, volume-less local PostgreSQL service that was stopped and removed after verification; no existing or user-managed database was modified.
 
 ## Data contract and provenance
+
+For the v0.2.0 candidate, the public `GET /api/v1/energy/carbon-intensity` response validates and exposes the configured region, numeric `intensity_gco2_per_kwh`, raw reported unit `gCO2/kWh`, actual/forecast type, index, interval bounds and status, retrieval time, age, freshness and official source URL. The route is read-only and requires no query input; caller input cannot select a URL or region. The process-local reader cache is capped at 30 seconds and is freshness-aware; fresh responses receive a bounded public cache header, while stale readings and upstream/validation errors are `no-store`. It returns 503 for unavailable or invalid upstream data. This candidate has not been deployed and does not modify persisted observations or scheduler input.
 
 Each response includes region ID, measurement kind (`actual`/`forecast`), interval status (`upcoming`/`in_progress`/`completed`), interval bounds, retrieval time, age from interval start, lag since interval end, freshness flag, source API name, and exact request URL. Optional persistence stores both canonical raw JSON evidence and normalised values, linked by source-payload provenance and SHA-256. Raw evidence is immutable; repeated submissions are idempotent. Replay verifies stored bytes and reuses the existing parser offline with original retrieval-time context. See [`DATABASE_AND_REPLAY.md`](DATABASE_AND_REPLAY.md) for details and limits.
 
@@ -137,11 +153,13 @@ The operator dashboard is a focused React/TypeScript application built by Vite. 
 2. **Data operations (local collector implemented):** opt-in scheduled polling, bounded retry/backoff, 429 handling, per-attempt status, freshness and interval-gap reporting, and graceful shutdown. Production-grade scheduling, backfill, alerting, retention, and backup/restore remain planned.
 3. **Forecasting (partially implemented):** a provenance-aware dataset and chronological persistence/seasonal-naive evaluation framework are available; meaningful real-data evaluation, further error/calibration evidence, model cards and monitored inference remain future work. Add neural models only when measured baselines justify them.
 4. **EV-depot simulation (implemented):** reuse the existing baseline and bounded carbon-aware heuristic for explicitly synthetic, price-free scenarios; the heuristic is not a global optimizer and failure is not an infeasibility proof.
-5. **Operator dashboard (implemented locally and hosted as a limited demo):** React/TypeScript edits synthetic inputs, calls the FastAPI simulation endpoint, and visualises validated Python results. NESO data is deliberately not connected to this scheduler. Hosting does not imply production operations or support.
-6. **Next planned milestone:** v0.2.0 is planned for a separate branch from the final v0.1.0 release main and will introduce real NESO data and forecast-backed scheduling. That scope is not included in this synthetic-only demo and requires separate provenance, safety, security, and review.
+5. **Operator dashboard (implemented locally and hosted as a limited v0.1.0 demo):** React/TypeScript edits synthetic inputs, calls the FastAPI simulation endpoint, and visualises validated Python results. The v0.2.0 Phase A candidate adds a separate read-only NESO live panel/API using the existing client; it is display-only and remains disconnected from the scheduler. Hosting does not imply production operations or support.
+6. **v0.2.0 Phase A (implemented on a feature branch; not deployed):** expose a validated read-only NESO regional reading and display region, intensity, units, source provenance, retrieval time, freshness and unavailable/stale states. Preserve synthetic scheduling and the v0.1.0 release. Forecast-backed scheduling remains future work and requires separate provenance, safety, security, and review.
 7. **Production readiness:** a limited public demo exists, but production SLOs, alerting, backups, high availability, operational access control, and production security review remain future work.
 
-## Release acceptance evidence
+## v0.1.0 release acceptance evidence (historical)
+
+The following records the published v0.1.0 state only; it is not evidence for the v0.2.0 candidate or a new deployment.
 
 - Post-merge Actions run [40193307594](https://github.com/vlad12-k/green-energy-dispatch-dashboard/actions/runs/40193307594) passed `quality`, `frontend-quality`, `container`, and `secret-scan` on application commit `55ae4f274848ac3642e1e0bf804feba7f07b8659`. See [the workflow](../.github/workflows/ci.yml) for exact gates; Trivy coverage is CRITICAL/HIGH, not all severities.
 - The bounded live smoke command `python scripts/smoke_staging.py --base-url https://green-energy-dispatch-dashboard.onrender.com` exited `0` from a clean detached checkout at that source SHA. It verified health, built assets/history fallback, one synthetic evaluation, provenance/claim flags, and selected disabled routes.

@@ -7,6 +7,29 @@ import { jsonResponse, incompleteSimulationResult, simulationResult } from './te
 
 afterEach(() => vi.unstubAllGlobals());
 
+const retrievedAt = new Date();
+const intervalStart = new Date(retrievedAt.getTime() - 5 * 60 * 1000);
+const intervalEnd = new Date(intervalStart.getTime() + 30 * 60 * 1000);
+
+const liveNesoReading = {
+  intensity_gco2_per_kwh: 79,
+  measurement_type: 'actual',
+  units: 'gCO2/kWh',
+  region_id: 13,
+  region_name: 'London',
+  intensity_index: 'moderate',
+  observed_at: intervalStart.toISOString(),
+  valid_until: intervalEnd.toISOString(),
+  retrieved_at: retrievedAt.toISOString(),
+  interval_status: 'in_progress',
+  interval_lag_seconds: 0,
+  is_fresh: true,
+  age_seconds: 300,
+  fresh_until: new Date(retrievedAt.getTime() + 55 * 60 * 1000).toISOString(),
+  source_api: 'neso-carbon-intensity-api',
+  source_url: 'https://api.carbonintensity.org.uk/regional/regionid/13',
+};
+
 describe('Operator dashboard', () => {
   it('organises controls and analysis in the new workbench shell', () => {
     render(<App />);
@@ -18,9 +41,39 @@ describe('Operator dashboard', () => {
     expect(screen.getByRole('button', { name: 'Run simulation' })).toBeVisible();
   });
 
+  it('shows the live feed without sending it to the synthetic scheduler', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => (
+      String(input) === '/api/v1/energy/carbon-intensity'
+        ? Promise.resolve(jsonResponse(liveNesoReading))
+        : Promise.resolve(jsonResponse(simulationResult()))
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'London' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Run simulation' }));
+    expect(await screen.findByRole('heading', { name: 'Schedule comparison' })).toBeInTheDocument();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/energy/carbon-intensity',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/simulations/ev-depot/evaluate',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify(createDemoScenario()),
+      }),
+    );
+  });
+
   it('loads the synthetic example, edits it and renders backend response values', async () => {
     const user = userEvent.setup();
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(simulationResult())));
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(simulationResult()))));
     render(<App />);
 
     expect(screen.getByRole('heading', { name: 'Dispatch workbench' })).toBeInTheDocument();
@@ -56,9 +109,15 @@ describe('Operator dashboard', () => {
   it('withholds stale results and ignores an in-flight response after editing', async () => {
     const user = userEvent.setup();
     let resolvePending: ((response: Response) => void) | undefined;
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(simulationResult()))
-      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolvePending = resolve; }));
+    let simulationCalls = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === '/api/v1/energy/carbon-intensity') {
+        return Promise.resolve(jsonResponse(liveNesoReading));
+      }
+      simulationCalls += 1;
+      if (simulationCalls === 1) return Promise.resolve(jsonResponse(simulationResult()));
+      return new Promise<Response>((resolve) => { resolvePending = resolve; });
+    });
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
@@ -71,7 +130,7 @@ describe('Operator dashboard', () => {
     expect(screen.getByText(/Previous results are hidden until this version is evaluated/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Run simulation' }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(simulationCalls).toBe(2));
     await user.clear(energy);
     await user.type(energy, '10');
     await act(async () => resolvePending?.(jsonResponse(simulationResult())));
@@ -82,13 +141,13 @@ describe('Operator dashboard', () => {
 
   it('announces validation failures and shows server errors next to fields', async () => {
     const user = userEvent.setup();
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
       detail: [{
         type: 'greater_than',
         loc: ['body', 'vehicles', 0, 'required_energy_kwh'],
         msg: 'Input should be greater than 0',
       }],
-    }, 422)));
+    }, 422))));
     render(<App />);
 
     await user.click(screen.getByRole('button', { name: 'Run simulation' }));
@@ -103,7 +162,7 @@ describe('Operator dashboard', () => {
 
   it('explains incomplete schedules and withholds equal-service comparison results', async () => {
     const user = userEvent.setup();
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(incompleteSimulationResult())));
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(incompleteSimulationResult()))));
     render(<App />);
 
     await user.click(screen.getByRole('button', { name: 'Run simulation' }));

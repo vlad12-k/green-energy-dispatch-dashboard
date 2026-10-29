@@ -3,6 +3,8 @@ from typing import Literal
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.services.neso_carbon_intensity import is_allowed_neso_base_url
+
 
 class Settings(BaseSettings):
     """Application configuration; production mode is conservative by default."""
@@ -41,8 +43,11 @@ class Settings(BaseSettings):
     def production_is_not_debug(self) -> "Settings":
         if self.app_env == "production" and self.debug:
             raise ValueError("DEBUG=true is not allowed when APP_ENV=production")
-        if not self.neso_api_base_url.startswith("https://"):
-            raise ValueError("NESO_API_BASE_URL must use HTTPS")
+        if not is_allowed_neso_base_url(self.neso_api_base_url):
+            raise ValueError(
+                "NESO_API_BASE_URL must use the allowlisted HTTPS host "
+                "api.carbonintensity.org.uk without credentials or a path"
+            )
         if self.collector_backoff_max_seconds < self.collector_backoff_base_seconds:
             raise ValueError("collector maximum backoff must be at least the base backoff")
         return self

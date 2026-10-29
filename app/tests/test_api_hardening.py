@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from app.api.v1.energy import CarbonIntensityResponse
 from app.core.config import Settings
-from app.main import app, lifespan
+from app.main import app, create_app, lifespan
 from app.services.neso_carbon_intensity import NesoAPIError, NesoCarbonIntensityClient
 
 
@@ -113,10 +113,9 @@ async def test_carbon_intensity_endpoint_returns_fresh_source_evidence(monkeypat
         return httpx.Response(200, json=payload)
 
     client = NesoCarbonIntensityClient(transport=httpx.MockTransport(handler))
-    monkeypatch.setattr(
-        "app.api.v1.energy.NesoCarbonIntensityClient", lambda **_kwargs: client
-    )
-    transport = httpx.ASGITransport(app=app)
+    monkeypatch.setattr("app.main.NesoCarbonIntensityClient", lambda **_kwargs: client)
+    application = create_app()
+    transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as api:
         response = await api.get("/api/v1/energy/carbon-intensity")
 
@@ -124,12 +123,14 @@ async def test_carbon_intensity_endpoint_returns_fresh_source_evidence(monkeypat
     body = response.json()
     assert body["intensity_gco2_per_kwh"] == 59
     assert body["measurement_type"] == "actual"
+    assert body["units"] == "gCO2/kWh"
     assert body["region_id"] == 13
     assert body["interval_status"] == "in_progress"
     assert body["interval_lag_seconds"] == 0
     assert body["is_fresh"] is True
     assert body["source_api"] == "neso-carbon-intensity-api"
     assert body["source_url"].endswith("/regional/regionid/13")
+    assert response.headers["cache-control"] == "public, max-age=30"
     CarbonIntensityResponse.model_validate(body)
 
 
@@ -142,12 +143,14 @@ async def test_carbon_intensity_endpoint_returns_503_on_upstream_failure(monkeyp
         async def fetch_latest(self):
             raise NesoAPIError("NESO Carbon Intensity API request timed out")
 
-    monkeypatch.setattr("app.api.v1.energy.NesoCarbonIntensityClient", BrokenClient)
-    transport = httpx.ASGITransport(app=app)
+    monkeypatch.setattr("app.main.NesoCarbonIntensityClient", BrokenClient)
+    application = create_app()
+    transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as api:
         response = await api.get("/api/v1/energy/carbon-intensity")
 
     assert response.status_code == 503
+    assert response.headers["cache-control"] == "no-store"
     assert "timed out" in response.json()["detail"]
 
 
@@ -166,10 +169,9 @@ async def test_carbon_intensity_endpoint_returns_503_for_malformed_json_shapes(
         return httpx.Response(200, json=payload)
 
     client = NesoCarbonIntensityClient(transport=httpx.MockTransport(handler))
-    monkeypatch.setattr(
-        "app.api.v1.energy.NesoCarbonIntensityClient", lambda **_kwargs: client
-    )
-    transport = httpx.ASGITransport(app=app)
+    monkeypatch.setattr("app.main.NesoCarbonIntensityClient", lambda **_kwargs: client)
+    application = create_app()
+    transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as api:
         response = await api.get("/api/v1/energy/carbon-intensity")
 
