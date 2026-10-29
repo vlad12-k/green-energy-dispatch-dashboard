@@ -10,6 +10,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 _SIMULATION_PATH = "/api/v1/simulations/ev-depot/evaluate"
 _NESO_INTENSITY_PATH = "/api/v1/energy/carbon-intensity"
+_NESO_FORECAST_PATH = "/api/v1/energy/carbon-intensity/forecast"
 _RATE_WINDOW_SECONDS = 60.0
 
 
@@ -38,7 +39,7 @@ class PublicDemoGuardMiddleware:
             return
 
         path = scope.get("path", "")
-        if path == _NESO_INTENSITY_PATH:
+        if path in {_NESO_INTENSITY_PATH, _NESO_FORECAST_PATH}:
             if scope.get("method") != "GET":
                 await self._respond(send, 405, "Method not allowed", allow="GET")
                 return
