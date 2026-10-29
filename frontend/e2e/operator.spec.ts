@@ -169,7 +169,13 @@ test('edits, evaluates against FastAPI, inspects results, and exports the scenar
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 13, 19)');
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#0B0D13');
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg');
-  await expect(page.getByText('No live NESO signal used')).toBeVisible();
+  const liveCarbonPanel = page.getByRole('region', { name: 'Live carbon intensity' });
+  await expect(liveCarbonPanel).toBeVisible();
+  await expect(liveCarbonPanel.getByRole('heading', { name: 'Live carbon intensity' })).toBeVisible();
+  const sourceBoundary = page.getByRole('region', { name: 'Synthetic schedule inputs — live display isolated' });
+  await expect(sourceBoundary).toBeVisible();
+  await expect(sourceBoundary.getByText('NOT CONNECTED', { exact: true })).toBeVisible();
+  await expect(sourceBoundary).toContainText('The read-only NESO display does not feed, modify, or influence either scheduling strategy.');
   await expect(page.getByRole('navigation', { name: 'Workspace sections' })).toBeVisible();
   const shellColumns = await page.locator('.app-shell').evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length);
   expect(shellColumns).toBe(2);
