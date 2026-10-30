@@ -78,6 +78,23 @@ def test_parser_returns_complete_forecast_only_timeline(
     assert {interval.measurement_type for interval in timeline.intervals} == {"forecast"}
 
 
+def test_parser_preserves_valid_unicode_region_shortnames(
+    forecast_start: datetime,
+    valid_forecast_payload: dict[str, Any],
+) -> None:
+    expected_name = "Réunion – 東京 🌍"
+    valid_forecast_payload["data"][0]["shortname"] = expected_name
+
+    timeline = parse_regional_forecast_response(
+        valid_forecast_payload,
+        region_id=13,
+        requested_from=forecast_start,
+        retrieved_at=forecast_start - timedelta(minutes=5),
+    )
+
+    assert timeline.region_name == expected_name
+
+
 def test_parser_records_the_canonical_upstream_url_when_not_supplied(
     forecast_start: datetime,
     valid_forecast_payload: dict[str, Any],
@@ -172,6 +189,23 @@ def test_parser_rejects_intervals_that_are_not_thirty_minutes(
     ).strftime("%Y-%m-%dT%H:%MZ")
 
     with pytest.raises(ValueError, match="30-minute"):
+        parse_regional_forecast_response(
+            valid_forecast_payload,
+            region_id=13,
+            requested_from=forecast_start,
+            retrieved_at=forecast_start - timedelta(minutes=5),
+        )
+
+
+def test_parser_rejects_forecast_timestamps_outside_datetime_range(
+    forecast_start: datetime,
+    valid_forecast_payload: dict[str, Any],
+) -> None:
+    interval = valid_forecast_payload["data"][0]["data"][0]
+    interval["from"] = "9999-12-31T23:30:00Z"
+    interval["to"] = "9999-12-31T23:59:00Z"
+
+    with pytest.raises(ValueError, match="datetime range"):
         parse_regional_forecast_response(
             valid_forecast_payload,
             region_id=13,

@@ -158,7 +158,22 @@ def _parse_timestamp(value: Any, field_name: str) -> datetime:
         raise ValueError(f"{field_name} must be an ISO-8601 timestamp") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError(f"{field_name} must include a timezone")
-    return parsed.astimezone(UTC)
+    try:
+        return parsed.astimezone(UTC)
+    except OverflowError as exc:
+        raise ValueError(
+            f"{field_name} is outside the supported UTC datetime range"
+        ) from exc
+
+
+def _validate_region_shortname(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("region shortname must be a non-empty string")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError("region shortname contains invalid Unicode") from exc
+    return value
 
 
 def next_half_hour_start(now: datetime) -> datetime:
@@ -189,8 +204,13 @@ def parse_regional_forecast_response(
         raise ValueError("requested_from must include a timezone")
     if retrieved_at.tzinfo is None or retrieved_at.utcoffset() is None:
         raise ValueError("retrieved_at must include a timezone")
-    requested_from = requested_from.astimezone(UTC)
-    retrieved_at = retrieved_at.astimezone(UTC)
+    try:
+        requested_from = requested_from.astimezone(UTC)
+        retrieved_at = retrieved_at.astimezone(UTC)
+    except OverflowError as exc:
+        raise ValueError(
+            "forecast timestamps are outside the supported UTC datetime range"
+        ) from exc
     if (
         requested_from.minute not in (0, 30)
         or requested_from.second != 0
@@ -213,9 +233,7 @@ def parse_regional_forecast_response(
     region = matching_regions[0]
     if type(region.get("regionid")) is not int or len(regions) != 1:
         raise ValueError("NESO response contains inconsistent region metadata")
-    region_name = region.get("shortname")
-    if not isinstance(region_name, str) or not region_name.strip():
-        raise ValueError("region shortname must be a non-empty string")
+    region_name = _validate_region_shortname(region.get("shortname"))
     raw_intervals = region.get("data")
     if not isinstance(raw_intervals, list) or not raw_intervals:
         raise ValueError("regional forecast intervals must be a non-empty list")
@@ -254,7 +272,13 @@ def parse_regional_forecast_response(
         valid_until = _parse_timestamp(
             raw_interval.get("to"), f"data[0].data[{index}].to"
         )
-        if valid_until != observed_at + timedelta(minutes=30):
+        try:
+            expected_valid_until = observed_at + timedelta(minutes=30)
+        except OverflowError as exc:
+            raise ValueError(
+                "forecast interval exceeds the supported datetime range"
+            ) from exc
+        if valid_until != expected_valid_until:
             raise ValueError("each forecast interval must have a 30-minute duration")
         if valid_until <= retrieved_at:
             raise ValueError("forecast contains an outdated completed interval")
@@ -262,7 +286,12 @@ def parse_regional_forecast_response(
             raise ValueError("forecast contains an outdated interval before the requested start")
         if observed_at in seen_starts:
             raise ValueError("forecast contains a duplicate forecast interval")
-        expected_start = requested_from + timedelta(minutes=30 * index)
+        try:
+            expected_start = requested_from + timedelta(minutes=30 * index)
+        except OverflowError as exc:
+            raise ValueError(
+                "forecast horizon exceeds the supported datetime range"
+            ) from exc
         if observed_at > expected_start:
             raise ValueError("forecast is missing forecast intervals")
         if observed_at < expected_start:
@@ -354,9 +383,7 @@ def parse_regional_response(
     measurement_type: Literal["actual", "forecast"] = (
         "actual" if actual is not None else "forecast"
     )
-    region_name = region.get("shortname")
-    if not isinstance(region_name, str) or not region_name:
-        raise ValueError("region shortname must be a non-empty string")
+    region_name = _validate_region_shortname(region.get("shortname"))
 
     if valid_until <= observed_at:
         raise ValueError("measurement validity window is invalid")
@@ -494,7 +521,12 @@ class NesoCarbonIntensityClient:
                                         "the 64 KiB limit"
                                     )
                                 body.extend(chunk)
-                        payload = json.loads(body)
+                        try:
+                            payload = json.loads(body)
+                        except RecursionError as exc:
+                            raise NesoAPIError(
+                                "NESO Carbon Intensity API returned invalid JSON"
+                            ) from exc
                         retrieved_at = datetime.now(UTC)
         except (TimeoutError, httpx.TimeoutException) as exc:
             raise NesoAPIError(
@@ -555,7 +587,7 @@ class NesoCarbonIntensityClient:
                 retrieved_at=retrieved_at,
                 source_url=source_url,
             )
-        except ValueError as exc:
+        except (ValueError, OverflowError) as exc:
             raise NesoAPIError(
                 f"NESO Carbon Intensity API forecast data rejected: {exc}"
             ) from exc

@@ -9,6 +9,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
 _SIMULATION_PATH = "/api/v1/simulations/ev-depot/evaluate"
+_FORECAST_EVALUATION_PATH = "/api/v1/simulations/ev-depot/forecast-evaluate"
 _NESO_INTENSITY_PATH = "/api/v1/energy/carbon-intensity"
 _NESO_FORECAST_PATH = "/api/v1/energy/carbon-intensity/forecast"
 _RATE_WINDOW_SECONDS = 60.0
@@ -24,13 +25,18 @@ class PublicDemoGuardMiddleware:
         simulation_only_mode: bool,
         max_request_body_bytes: int,
         api_rate_limit_requests_per_minute: int,
+        forecast_evaluation_rate_limit_requests_per_minute: int = 5,
     ) -> None:
         self.app = app
         self.simulation_only_mode = simulation_only_mode
         self.max_request_body_bytes = max_request_body_bytes
         self.api_rate_limit_requests_per_minute = api_rate_limit_requests_per_minute
+        self.forecast_evaluation_rate_limit_requests_per_minute = (
+            forecast_evaluation_rate_limit_requests_per_minute
+        )
         self._simulation_request_times: deque[float] = deque()
         self._neso_request_times: deque[float] = deque()
+        self._forecast_evaluation_request_times: deque[float] = deque()
         self._rate_lock = asyncio.Lock()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -39,6 +45,51 @@ class PublicDemoGuardMiddleware:
             return
 
         path = scope.get("path", "")
+        if path == _FORECAST_EVALUATION_PATH:
+            if scope.get("method") != "POST":
+                await self._respond(send, 405, "Method not allowed", allow="POST")
+                return
+            declared_size = self._content_length(scope)
+            if declared_size is not None and declared_size > self.max_request_body_bytes:
+                await self._respond(send, 413, "Request body exceeds the configured limit")
+                return
+            retry_after = await self._claim_forecast_evaluation_rate_limit_slot()
+            if retry_after is not None:
+                await self._respond(
+                    send,
+                    429,
+                    "Rate limit exceeded; retry later",
+                    retry_after=retry_after,
+                )
+                return
+
+            body = bytearray()
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return
+                if message["type"] != "http.request":
+                    continue
+                chunk = message.get("body", b"")
+                if len(chunk) > self.max_request_body_bytes - len(body):
+                    await self._respond(send, 413, "Request body exceeds the configured limit")
+                    return
+                body.extend(chunk)
+                if not message.get("more_body", False):
+                    break
+
+            replay_pending = True
+
+            async def replay_receive() -> Message:
+                nonlocal replay_pending
+                if replay_pending:
+                    replay_pending = False
+                    return {"type": "http.request", "body": bytes(body), "more_body": False}
+                return await receive()
+
+            await self.app(scope, replay_receive, send)
+            return
+
         if path in {_NESO_INTENSITY_PATH, _NESO_FORECAST_PATH}:
             if scope.get("method") != "GET":
                 await self._respond(send, 405, "Method not allowed", allow="GET")
@@ -169,13 +220,42 @@ class PublicDemoGuardMiddleware:
         return None
 
     async def _claim_rate_limit_slot(self, request_times: deque[float]) -> int | None:
+        return await self._claim_rate_limit_slots(
+            ((request_times, self.api_rate_limit_requests_per_minute),)
+        )
+
+    async def _claim_forecast_evaluation_rate_limit_slot(self) -> int | None:
+        """Claim the route cap and shared NESO capacity atomically."""
+        return await self._claim_rate_limit_slots(
+            (
+                (self._neso_request_times, self.api_rate_limit_requests_per_minute),
+                (
+                    self._forecast_evaluation_request_times,
+                    self.forecast_evaluation_rate_limit_requests_per_minute,
+                ),
+            )
+        )
+
+    async def _claim_rate_limit_slots(
+        self,
+        buckets: tuple[tuple[deque[float], int], ...],
+    ) -> int | None:
         now = monotonic()
         async with self._rate_lock:
-            while request_times and now - request_times[0] >= _RATE_WINDOW_SECONDS:
-                request_times.popleft()
-            if len(request_times) >= self.api_rate_limit_requests_per_minute:
-                return max(1, ceil(_RATE_WINDOW_SECONDS - (now - request_times[0])))
-            request_times.append(now)
+            for request_times, _limit in buckets:
+                while request_times and now - request_times[0] >= _RATE_WINDOW_SECONDS:
+                    request_times.popleft()
+
+            retry_afters = [
+                max(1, ceil(_RATE_WINDOW_SECONDS - (now - request_times[0])))
+                for request_times, limit in buckets
+                if len(request_times) >= limit
+            ]
+            if retry_afters:
+                return max(retry_afters)
+
+            for request_times, _limit in buckets:
+                request_times.append(now)
         return None
 
     @staticmethod

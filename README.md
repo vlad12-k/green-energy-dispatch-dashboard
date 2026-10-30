@@ -12,7 +12,8 @@ Green Energy Dispatch is a UK energy-software **portfolio prototype**. The curre
 - `POST /api/v1/simulations/ev-depot/evaluate` — stateless synthetic evaluation of the existing **Immediate Baseline** and **Carbon-Aware Heuristic**, with input provenance and equal-service comparison eligibility.
 - React/TypeScript operator dashboard — scenario editing, bounded JSON import/export, API-backed results, schedule/load/intensity visualisations, validation feedback, and text/table alternatives.
 - In the deployed v0.2.0 Phase A simulation-only mode, only the synthetic `POST` evaluation route and read-only `GET /api/v1/energy/carbon-intensity` route for the configured region are exposed. Other `/api/*` routes and interactive documentation remain disabled.
-- The optional PostgreSQL evidence store/replay and collector remain separate from the dashboard and scheduler. The live GET is cached, validates upstream data, and never writes to the database or changes synthetic schedule inputs.
+- Phase B1's validated 24-hour forecast timeline and Phase B2a's forecast-backed scheduling core are merged repository capabilities. This branch adds the backend-only Phase B2b candidate `POST /api/v1/simulations/ev-depot/forecast-evaluate`; it is not called by React and is **not deployed**. It does not change the existing Render service.
+- The optional PostgreSQL evidence store/replay and collector remain separate from the dashboard and scheduler. The deployed live GET is cached, validates upstream data, and never writes to the database or changes synthetic schedule inputs.
 - No user authentication or authorisation is implemented. Do not submit personal, operational, or confidential data.
 
 ## Architecture and roadmap

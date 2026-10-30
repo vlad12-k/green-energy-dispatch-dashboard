@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     serve_frontend: bool = False
     max_request_body_bytes: int = Field(default=65_536, ge=1024, le=1_048_576)
     api_rate_limit_requests_per_minute: int = Field(default=60, ge=1, le=10_000)
+    forecast_evaluation_rate_limit_requests_per_minute: int = Field(
+        default=5,
+        ge=1,
+        le=60,
+    )
     database_url: SecretStr | None = Field(default=None, repr=False)
 
     @field_validator("database_url", mode="before")

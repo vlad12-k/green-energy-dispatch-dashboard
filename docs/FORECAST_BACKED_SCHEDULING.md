@@ -2,7 +2,7 @@
 
 ## Scope
 
-Phase B2a adds a domain-only scheduling capability on the feature branch. It does not add a public route, change the existing synthetic API, call the NESO service during scheduling, persist results, or connect to chargers or market systems. The current Render deployment is unchanged.
+Phase B2a adds the domain-only scheduling capability. Phase B2b adds a separate forecast-backed API integration candidate on the feature branch; that candidate is **not deployed** and does not change the current Render service. The endpoint reuses the validated Phase B1 NESO timeline and B2a scheduler without changing the existing synthetic API, persisting results, or connecting to chargers or market systems.
 
 The existing `CarbonAwareDepotScenario`, `CarbonInputProvenance`, and `CarbonAwareSimulationResult` remain synthetic-only contracts. Forecast inputs use the separate `ForecastBackedDepotScenario` and results use `ForecastBackedSchedulingResult`; regional forecasts are never relabelled as synthetic observations.
 
@@ -42,12 +42,35 @@ The immediate baseline and forecast-aware strategy use the same validated `Depot
 
 A comparison is eligible only when both strategies complete every vehicle requirement. Otherwise the result contains an explicit comparison-unavailable reason and no reduction value; an incomplete heuristic result is not proof that the scenario is infeasible. The forecast-aware strategy is the existing deterministic EDF seed plus at most two bounded carbon-shift passes. It is a heuristic, not a globally optimal solution. A proxy difference is not a measured emissions outcome or a real-world reduction claim.
 
-## Example integration boundary
+## Phase B2b forecast-evaluation API candidate (not deployed)
 
-A future server-side integration may obtain the existing B1 timeline using `NesoCarbonIntensityClient.fetch_forecast_timeline(...)`, construct the explicit mapping and forecast-backed request, then call `schedule_forecast_backed(...)`. It must record the decision time at or after successful retrieval and choose a scheduling start at or after that decision time, aligned to the next eligible UTC half-hour boundary. If the returned timeline does not cover the entire requested horizon, scheduling remains unavailable.
+The separate advisory-only endpoint is `POST /api/v1/simulations/ev-depot/forecast-evaluate`. Phase A is the deployed live NESO display (`GET /api/v1/energy/carbon-intensity`) and remains separate from scheduling. Phase B1 supplies the validated 24-hour forecast timeline; Phase B2a supplies the forecast-backed domain contracts and deterministic scheduler; Phase B2b connects those components in this backend-only candidate. The React dashboard does not call this endpoint, and it is **not deployed**. No Render configuration, release tag, worker, production database, charger, or market system is changed or used.
 
-Do not expose this request as a public route in B2a. Phase B2b owns any API route, response-size/rate-limit policy, error-to-HTTP mapping, request-time forecast retrieval, and end-to-end route tests. B2b must keep user-provided region mapping within a trusted server-side boundary and must preserve the no-future-information rule for replay requests.
+### Request contract
 
-## Verification boundary
+The JSON body contains a required `scenario` using the existing `DepotScenario` fields and may contain `neso_region_id` only as an optional assertion of the configured region. The request is strict (`extra="forbid"`): clients cannot supply raw forecast values, URLs, retrieval or decision timestamps, provenance, or scheduling results. Scenario timestamps must be ISO-8601 UTC values. The HTTP adapter bounds the scenario to 30-minute intervals, at most 48 intervals, at most 50 vehicles, identifiers no longer than 120 characters, and finite numeric inputs no greater than 1,000,000,000. Each vehicle window must fit within the scenario horizon and its charging limit must respect the depot limit.
 
-Automated unit tests build deterministic forecast fixtures through the existing parser and never call the live NESO API. PostgreSQL persistence and migrations are not part of this scheduling core. Passing these tests verifies domain behavior only; it does not establish forecast accuracy, upstream availability, deployment readiness, charger safety, or production operation.
+If supplied, `neso_region_id` must equal the server-configured `NESO_REGION_ID`; it never chooses geography. The scheduling start must be at or after the next eligible UTC half-hour boundary at request time, and must still be no earlier than the server decision time captured after forecast retrieval. A scenario that violates either time condition receives HTTP 422 before scheduling.
+
+### Trusted forecast and scheduling flow
+
+The endpoint calls the configured `CachedNesoCarbonIntensityReader` directly; it does not make an HTTP request to the application's own B1 route. The existing NESO client enforces the official HTTPS host allowlist, disables redirects, applies bounded timeouts and response size, and validates the response into a `CarbonIntensityForecastTimeline`. The B2a scheduler then revalidates region, official source URL, `gCO2/kWh` units, forecast-only interval provenance, exact contiguous UTC half-hour alignment, freshness and full scheduling-horizon coverage. Cached timelines are checked against each request's complete horizon; a cache hit that no longer covers the scenario fails closed. No synthetic fallback is used.
+
+The result preserves the upstream timeline's server-observed retrieval timestamp. The server captures `decision_time` after retrieval and requires retrieval to be no later than that decision. NESO does not provide independently verified original issue-time evidence here: `retrieved_at` proves when this service obtained the timeline, not when NESO first issued it, and cannot establish a historical as-of forecast.
+
+### Response and failure semantics
+
+- HTTP 200 with `status: "available"` means validated forecast evidence was available and both deterministic strategies ran. This includes schedules where either or both strategies do **not** demonstrate complete service; in that case `comparison_eligible` is false, the response gives a reason, and no reduction value is reported.
+- HTTP 503 with `status: "unavailable"` means forecast evidence was missing, stale, invalid, unavailable, or the upstream request failed. The response has no schedules or carbon proxy, includes a typed unavailable reason/detail, and does not fall back to synthetic inputs. Raw upstream bodies, exception strings and credentials are not returned.
+- HTTP 422 reports invalid client scenario fields, region mismatch, or a scheduling start that is too early. The route returns sanitised validation details without echoing rejected values.
+- HTTP 405 rejects every method except POST and advertises `Allow: POST`.
+
+The response model is `ForecastBackedSchedulingResult`: it retains `scenario_id`, `status`, typed `unavailable_reason`/`unavailable_detail`, `input_provenance`, both strategy results, comparison eligibility/reasons, optional absolute/percentage proxy differences, `carbon_proxy_unit`, and the literal advisory/forecast/measured/real-world-claim flags. An unavailable result has no provenance, schedules, or proxy difference. Available but incomplete schedules keep both strategy diagnostics while comparison values remain `null` and an explicit reason is supplied.
+
+All carbon values are `gCO2` forecast-weighted energy proxies, not measured emissions or verified savings. A baseline-versus-forecast-aware difference is present only when both strategies complete equivalent service requirements. The bounded B2a heuristic remains a heuristic, not a global optimum or proof of infeasibility. Successful and handled error responses use `Cache-Control: no-store`.
+
+### Public-demo limits and verification boundary
+
+In simulation-only mode, the public guard admits only the exact forecast-evaluation POST path (alongside the existing synthetic POST and read-only NESO GET routes). It enforces the configured request-body cap, a separate process-local forecast-evaluation rate bucket (default 5 requests/minute, maximum 60), and the existing shared NESO bucket (default 60 requests/minute) so this endpoint and NESO GETs cannot independently consume more than the shared per-process allowance. Accepted forecast POSTs count against both buckets, including cache hits. Buckets are shared by all visitors within one process, reset on restart and are not coordinated across replicas. This is resource control, **not authentication, per-user authorization, or distributed abuse protection**; the public demo has no authenticated operator identity. Interactive docs and OpenAPI remain disabled in simulation-only mode.
+
+Automated tests use mocked NESO transports and deterministic fixtures only; they make no live NESO requests. The API integration is stateless and does not persist results, run background jobs, or issue physical commands. PostgreSQL is not required by this route. Passing tests verifies local behavior, not forecast accuracy, upstream availability, deployment readiness, charger safety, or production operation.
