@@ -66,7 +66,10 @@ class DepotScenario(BaseModel):
             raise ValueError("interval_minutes must divide evenly into an hour or be a whole number of hours")
         if len({vehicle.vehicle_id for vehicle in self.vehicles}) != len(self.vehicles):
             raise ValueError("vehicle_id values must be unique")
-        horizon_end = self.horizon_end
+        try:
+            horizon_end = self.horizon_end
+        except OverflowError as exc:
+            raise ValueError("scenario horizon exceeds the supported datetime range") from exc
         for vehicle in self.vehicles:
             if vehicle.availability_start < self.start_at or vehicle.availability_end > horizon_end:
                 raise ValueError("availability window must be within the scenario horizon")

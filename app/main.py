@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 import uvicorn
 
 from app.api.v1.energy import router as energy_router
-from app.api.v1.simulations import router as simulations_router
+from app.api.v1.simulations import FORECAST_EVALUATION_PATH, router as simulations_router
 from app.core.config import Settings, settings
 from app.core.logging import setup_logging
 from app.core.portfolio_guard import PublicDemoGuardMiddleware
@@ -53,6 +55,7 @@ def create_app(
         redoc_url="/redoc" if api_docs_enabled else None,
         openapi_url="/openapi.json" if api_docs_enabled else None,
     )
+    application.state.neso_region_id = application_settings.neso_region_id
     application.state.neso_carbon_intensity_reader = CachedNesoCarbonIntensityReader(
         NesoCarbonIntensityClient(
             base_url=application_settings.neso_api_base_url,
@@ -63,12 +66,33 @@ def create_app(
     )
     application.include_router(energy_router, prefix="/api/v1")
     application.include_router(simulations_router, prefix="/api/v1")
+
+    @application.exception_handler(RequestValidationError)
+    async def safe_request_validation_error(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        if request.url.path != FORECAST_EVALUATION_PATH:
+            return await request_validation_exception_handler(request, exc)
+        safe_errors = [
+            {key: error[key] for key in ("loc", "msg", "type") if key in error}
+            for error in exc.errors()
+        ]
+        return JSONResponse(
+            status_code=422,
+            content={"detail": safe_errors},
+            headers={"Cache-Control": "no-store"},
+        )
+
     application.add_middleware(
         PublicDemoGuardMiddleware,
         simulation_only_mode=application_settings.simulation_only_mode,
         max_request_body_bytes=application_settings.max_request_body_bytes,
         api_rate_limit_requests_per_minute=(
             application_settings.api_rate_limit_requests_per_minute
+        ),
+        forecast_evaluation_rate_limit_requests_per_minute=(
+            application_settings.forecast_evaluation_rate_limit_requests_per_minute
         ),
     )
 
