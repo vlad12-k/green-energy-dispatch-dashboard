@@ -221,6 +221,8 @@ def parse_regional_forecast_response(
     if not isinstance(payload, Mapping):
         raise ValueError("NESO response must be a JSON object")
     regions = payload.get("data")
+    if isinstance(regions, Mapping):
+        regions = [regions]
     if not isinstance(regions, list) or not regions:
         raise ValueError("response data must be a non-empty list")
     if any(not isinstance(item, Mapping) for item in regions):
@@ -237,6 +239,19 @@ def parse_regional_forecast_response(
     raw_intervals = region.get("data")
     if not isinstance(raw_intervals, list) or not raw_intervals:
         raise ValueError("regional forecast intervals must be a non-empty list")
+    if len(raw_intervals) == 49 and isinstance(raw_intervals[0], Mapping):
+        leading_interval = raw_intervals[0]
+        leading_start = _parse_timestamp(
+            leading_interval.get("from"), "data[0].data[0].from"
+        )
+        leading_valid_until = _parse_timestamp(
+            leading_interval.get("to"), "data[0].data[0].to"
+        )
+        if (
+            leading_valid_until == requested_from
+            and leading_valid_until - leading_start == timedelta(minutes=30)
+        ):
+            raw_intervals = raw_intervals[1:]
     if len(raw_intervals) < 48:
         raise ValueError("forecast is missing forecast intervals")
     if len(raw_intervals) > 48:
