@@ -78,6 +78,81 @@ def test_parser_returns_complete_forecast_only_timeline(
     assert {interval.measurement_type for interval in timeline.intervals} == {"forecast"}
 
 
+def test_parser_accepts_region_specific_endpoint_object_envelope(
+    forecast_start: datetime,
+    valid_forecast_payload: dict[str, Any],
+) -> None:
+    payload = {"data": valid_forecast_payload["data"][0]}
+
+    timeline = parse_regional_forecast_response(
+        payload,
+        region_id=13,
+        requested_from=forecast_start,
+        retrieved_at=forecast_start - timedelta(minutes=5),
+    )
+
+    assert timeline.region_id == 13
+    assert timeline.region_name == "London"
+    assert timeline.requested_from == forecast_start
+    assert len(timeline.intervals) == 48
+
+
+def test_parser_excludes_the_leading_interval_ending_at_forecast_start(
+    forecast_start: datetime,
+    valid_forecast_payload: dict[str, Any],
+) -> None:
+    regional_data = valid_forecast_payload["data"][0]
+    regional_data["data"].insert(
+        0,
+        {
+            "from": (forecast_start - timedelta(minutes=30)).strftime(
+                "%Y-%m-%dT%H:%MZ"
+            ),
+            "to": forecast_start.strftime("%Y-%m-%dT%H:%MZ"),
+            "intensity": {"actual": None, "forecast": 999.0, "index": "very high"},
+        },
+    )
+
+    timeline = parse_regional_forecast_response(
+        {"data": regional_data},
+        region_id=13,
+        requested_from=forecast_start,
+        retrieved_at=forecast_start - timedelta(minutes=5),
+    )
+
+    assert len(timeline.intervals) == 48
+    assert timeline.intervals[0].observed_at == forecast_start
+    assert timeline.intervals[0].intensity_gco2_per_kwh == 100.0
+    assert timeline.intervals[-1].valid_until == forecast_start + timedelta(hours=24)
+
+
+def test_parser_rejects_an_unrelated_extra_leading_interval(
+    forecast_start: datetime,
+    valid_forecast_payload: dict[str, Any],
+) -> None:
+    regional_data = valid_forecast_payload["data"][0]
+    regional_data["data"].insert(
+        0,
+        {
+            "from": (forecast_start - timedelta(minutes=60)).strftime(
+                "%Y-%m-%dT%H:%MZ"
+            ),
+            "to": (forecast_start - timedelta(minutes=30)).strftime(
+                "%Y-%m-%dT%H:%MZ"
+            ),
+            "intensity": {"actual": None, "forecast": 999.0, "index": "very high"},
+        },
+    )
+
+    with pytest.raises(ValueError, match="more than 48"):
+        parse_regional_forecast_response(
+            {"data": regional_data},
+            region_id=13,
+            requested_from=forecast_start,
+            retrieved_at=forecast_start - timedelta(minutes=5),
+        )
+
+
 def test_parser_preserves_valid_unicode_region_shortnames(
     forecast_start: datetime,
     valid_forecast_payload: dict[str, Any],
