@@ -66,6 +66,23 @@ def test_neso_configuration_rejects_non_allowlisted_endpoints(base_url: str) -> 
         Settings(neso_api_base_url=base_url)
 
 
+def test_forecast_preview_openapi_documents_upstream_unavailability() -> None:
+    application = create_app(
+        Settings(app_env="development", debug=True, simulation_only_mode=False)
+    )
+
+    openapi = application.openapi()
+    responses = openapi["paths"][
+        "/api/v1/energy/carbon-intensity/forecast"
+    ]["get"]["responses"]
+    assert responses["503"]["description"] == "NESO forecast is temporarily unavailable."
+    schema = responses["503"]["content"]["application/json"]["schema"]
+    error_schema = openapi["components"]["schemas"]["CarbonIntensityUnavailableResponse"]
+    assert schema["$ref"] == "#/components/schemas/CarbonIntensityUnavailableResponse"
+    assert error_schema["required"] == ["detail"]
+    assert error_schema["properties"]["detail"]["type"] == "string"
+
+
 @pytest.mark.asyncio
 async def test_neso_client_rejects_oversized_upstream_response() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:

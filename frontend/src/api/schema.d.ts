@@ -44,6 +44,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/energy/carbon-intensity/forecast": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Carbon Intensity Forecast
+         * @description Return a read-only forecast timeline for the next UTC-aligned 24 hours.
+         */
+        get: operations["get_carbon_intensity_forecast_api_v1_energy_carbon_intensity_forecast_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/simulations/ev-depot/evaluate": {
         parameters: {
             query?: never;
@@ -58,6 +78,26 @@ export interface paths {
          * @description Run the existing bounded scheduler without persistence or upstream calls.
          */
         post: operations["evaluate_ev_depot_scenario_api_v1_simulations_ev_depot_evaluate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/simulations/ev-depot/forecast-evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Evaluate Forecast Backed Ev Depot Scenario
+         * @description Run the advisory scheduler against validated server-side NESO evidence.
+         */
+        post: operations["evaluate_forecast_backed_ev_depot_scenario_api_v1_simulations_ev_depot_forecast_evaluate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -304,6 +344,82 @@ export interface components {
             source_id: "synthetic-scenario";
         };
         /**
+         * CarbonIntensityForecastIntervalResponse
+         * @description One half-hour interval that is explicitly identified as a forecast.
+         */
+        CarbonIntensityForecastIntervalResponse: {
+            /** Intensity Gco2 Per Kwh */
+            intensity_gco2_per_kwh: number;
+            /** Intensity Index */
+            intensity_index: string;
+            /**
+             * Measurement Type
+             * @constant
+             */
+            measurement_type: "forecast";
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /**
+             * Valid Until
+             * Format: date-time
+             */
+            valid_until: string;
+        };
+        /**
+         * CarbonIntensityForecastTimelineResponse
+         * @description A validated, forecast-only regional timeline with retrieval provenance.
+         */
+        CarbonIntensityForecastTimelineResponse: {
+            /** Intervals */
+            intervals: components["schemas"]["CarbonIntensityForecastIntervalResponse"][];
+            /**
+             * Measurement Type
+             * @default forecast
+             * @constant
+             */
+            measurement_type: "forecast";
+            /** Region Id */
+            region_id: number;
+            /** Region Name */
+            region_name: string;
+            /**
+             * Requested From
+             * Format: date-time
+             */
+            requested_from: string;
+            /**
+             * Retrieved At
+             * Format: date-time
+             */
+            retrieved_at: string;
+            /**
+             * Source Api
+             * @constant
+             */
+            source_api: "neso-carbon-intensity-api";
+            /** Source Url */
+            source_url: string;
+            /**
+             * Status
+             * @default available
+             * @constant
+             */
+            status: "available";
+            /**
+             * Units
+             * @constant
+             */
+            units: "gCO2/kWh";
+            /**
+             * Valid Until
+             * Format: date-time
+             */
+            valid_until: string;
+        };
+        /**
          * CarbonIntensityInterval
          * @description One explicitly labelled carbon-intensity interval for a local simulation.
          */
@@ -402,6 +518,14 @@ export interface components {
              */
             valid_until: string;
         };
+        /**
+         * CarbonIntensityUnavailableResponse
+         * @description HTTP error body returned when forecast data cannot be retrieved.
+         */
+        CarbonIntensityUnavailableResponse: {
+            /** Detail */
+            detail: string;
+        };
         /** ChargingAllocation */
         ChargingAllocation: {
             /** Carbon Intensity Value */
@@ -439,6 +563,157 @@ export interface components {
             scenario_bounds_respected: boolean;
             /** Vehicle Power Limits Respected */
             vehicle_power_limits_respected: boolean;
+        };
+        /**
+         * ForecastBackedDepotScenarioRequest
+         * @description Strict HTTP adapter for the bounded B2a scenario contract.
+         */
+        ForecastBackedDepotScenarioRequest: {
+            /** Depot Power Kw */
+            depot_power_kw: number;
+            /** Interval Minutes */
+            interval_minutes: number;
+            /** Intervals */
+            intervals: number;
+            /** Scenario Id */
+            scenario_id: string;
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
+            /** Vehicles */
+            vehicles: components["schemas"]["VehicleAvailability"][];
+        };
+        /**
+         * ForecastBackedEvaluationRequest
+         * @description Client-supplied scenario only; forecast evidence remains server-owned.
+         */
+        ForecastBackedEvaluationRequest: {
+            /** Neso Region Id */
+            neso_region_id?: number | null;
+            scenario: components["schemas"]["ForecastBackedDepotScenarioRequest"];
+        };
+        /** ForecastBackedInputProvenance */
+        ForecastBackedInputProvenance: {
+            /**
+             * Decision Time
+             * Format: date-time
+             */
+            decision_time: string;
+            /** Forecast Age Seconds */
+            forecast_age_seconds: number;
+            /**
+             * Forecast Retrieved At
+             * Format: date-time
+             */
+            forecast_retrieved_at: string;
+            /**
+             * Intensity Unit
+             * @constant
+             */
+            intensity_unit: "gCO2/kWh";
+            /** Interval Count */
+            interval_count: number;
+            /**
+             * Measurement Type
+             * @default forecast
+             * @constant
+             */
+            measurement_type: "forecast";
+            /**
+             * Prediction Horizon End
+             * Format: date-time
+             */
+            prediction_horizon_end: string;
+            /**
+             * Prediction Horizon Start
+             * Format: date-time
+             */
+            prediction_horizon_start: string;
+            /** Region Id */
+            region_id: number;
+            /** Region Name */
+            region_name: string;
+            /**
+             * Scheduling Horizon End
+             * Format: date-time
+             */
+            scheduling_horizon_end: string;
+            /**
+             * Scheduling Horizon Start
+             * Format: date-time
+             */
+            scheduling_horizon_start: string;
+            /**
+             * Source Api
+             * @constant
+             */
+            source_api: "neso-carbon-intensity-api";
+            /**
+             * Source Classification
+             * @constant
+             */
+            source_classification: "regional_forecast";
+            /** Source Url */
+            source_url: string;
+        };
+        /** ForecastBackedSchedulingResult */
+        ForecastBackedSchedulingResult: {
+            /** Absolute Carbon Proxy Reduction */
+            absolute_carbon_proxy_reduction: number | null;
+            /**
+             * Advisory Only
+             * @default true
+             * @constant
+             */
+            advisory_only: true;
+            /**
+             * Carbon Proxy Unit
+             * @default gCO2
+             * @constant
+             */
+            carbon_proxy_unit: "gCO2";
+            /** Comparison Eligible */
+            comparison_eligible: boolean;
+            /** Comparison Unavailable Reason */
+            comparison_unavailable_reason: string | null;
+            forecast_aware: components["schemas"]["CarbonAwareSchedule"] | null;
+            /**
+             * Forecast Based
+             * @default true
+             * @constant
+             */
+            forecast_based: true;
+            immediate_baseline: components["schemas"]["CarbonAwareSchedule"] | null;
+            input_provenance: components["schemas"]["ForecastBackedInputProvenance"] | null;
+            /**
+             * Measured
+             * @default false
+             * @constant
+             */
+            measured: false;
+            /** Percentage Carbon Proxy Reduction */
+            percentage_carbon_proxy_reduction: number | null;
+            /** Percentage Difference Unavailable Reason */
+            percentage_difference_unavailable_reason?: string | null;
+            /**
+             * Real World Emissions Reduction Claimed
+             * @default false
+             * @constant
+             */
+            real_world_emissions_reduction_claimed: false;
+            /** Scenario Id */
+            scenario_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "available" | "unavailable";
+            /** Unavailable Detail */
+            unavailable_detail?: ("upstream_error" | "upstream_validation_error" | "explicitly_unavailable") | null;
+            /** Unavailable Reason */
+            unavailable_reason: ("missing_forecast" | "scenario_region_mapping_mismatch" | "forecast_region_mismatch" | "forecast_unavailable" | "invalid_decision_time" | "decision_after_scenario_start" | "forecast_retrieved_after_decision_time" | "stale_forecast" | "invalid_depot_scenario" | "invalid_forecast_source" | "intensity_unit_mismatch" | "invalid_forecast_timeline" | "misaligned_forecast_intervals" | "overlapping_forecast_intervals" | "missing_interval_coverage" | "scenario_interval_misaligned") | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -575,6 +850,46 @@ export interface operations {
             };
         };
     };
+    get_carbon_intensity_forecast_api_v1_energy_carbon_intensity_forecast_get: {
+        parameters: {
+            query: {
+                region_id: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CarbonIntensityForecastTimelineResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description NESO forecast is temporarily unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CarbonIntensityUnavailableResponse"];
+                };
+            };
+        };
+    };
     evaluate_ev_depot_scenario_api_v1_simulations_ev_depot_evaluate_post: {
         parameters: {
             query?: never;
@@ -604,6 +919,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evaluate_forecast_backed_ev_depot_scenario_api_v1_simulations_ev_depot_forecast_evaluate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForecastBackedEvaluationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForecastBackedSchedulingResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Forecast evidence is unavailable or invalid. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForecastBackedSchedulingResult"];
                 };
             };
         };

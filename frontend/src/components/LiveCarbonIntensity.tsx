@@ -19,7 +19,13 @@ function formatAge(seconds: number): string {
   return `${Math.floor(seconds / 3600)} hr ${Math.floor((seconds % 3600) / 60)} min`;
 }
 
-export function LiveCarbonIntensity() {
+export function LiveCarbonIntensity({
+  onServerTime,
+  onVerifiedReading,
+}: {
+  onServerTime?: (serverTime: string) => void;
+  onVerifiedReading?: (reading: CarbonIntensityResponse) => void;
+} = {}) {
   const [reading, setReading] = useState<CarbonIntensityResponse | null>(null);
   const [requestError, setRequestError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -36,9 +42,10 @@ export function LiveCarbonIntensity() {
     setLoading(true);
 
     try {
-      const result = await getCarbonIntensity(controller.signal);
+      const result = await getCarbonIntensity(controller.signal, onServerTime);
       if (controller.signal.aborted || requestId !== requestSequence.current) return;
       setReading(result);
+      onVerifiedReading?.(result);
       setRequestError(false);
       setNow(Date.now());
     } catch {
@@ -47,7 +54,7 @@ export function LiveCarbonIntensity() {
     } finally {
       if (requestId === requestSequence.current) setLoading(false);
     }
-  }, []);
+  }, [onServerTime, onVerifiedReading]);
 
   useEffect(() => {
     const initialTimer = window.setTimeout(() => void refresh(), 0);

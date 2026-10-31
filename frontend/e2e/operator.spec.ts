@@ -1,5 +1,17 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
+import { verifyE2EFixtureIdentity } from '../scripts/e2e-server-guard.mjs';
+import { assertNoE2EExternalRequests, installE2EOriginGuard } from './local-origin-guard';
+
+test.beforeEach(async ({ page }) => {
+  await verifyE2EFixtureIdentity();
+  await installE2EOriginGuard(page);
+});
+
+test.afterEach(async ({ page }) => {
+  await verifyE2EFixtureIdentity();
+  assertNoE2EExternalRequests(page);
+});
 
 function contrastRatio(foreground: string, background: string): number {
   const luminance = (colour: string) => {
@@ -51,6 +63,23 @@ test('mobile topbar uses a readable compact status without wrapping or clipping'
     return actions.scrollWidth <= actions.clientWidth && actionBounds.right <= topbarBounds.right;
   });
   expect(fitsTopbar).toBe(true);
+
+  const workspaceNavigation = page.getByRole('navigation', { name: 'Workspace sections' });
+  await expect(workspaceNavigation.getByRole('link')).toHaveCount(4);
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    const allLinksFit = await workspaceNavigation.evaluate((navigation) => {
+      const bounds = navigation.getBoundingClientRect();
+      return Array.from(navigation.querySelectorAll('a')).every((link) => {
+        const linkBounds = link.getBoundingClientRect();
+        return linkBounds.width > 0
+          && linkBounds.left >= bounds.left
+          && linkBounds.right <= bounds.right
+          && link.scrollWidth <= link.clientWidth;
+      });
+    });
+    expect(allLinksFit, `all workspace links should fit at ${width}px`).toBe(true);
+  }
 });
 
 test('mobile carbon chart labels remain legible without page overflow', async ({ page }) => {
@@ -174,7 +203,7 @@ test('edits, evaluates against FastAPI, inspects results, and exports the scenar
   await expect(liveCarbonPanel.getByRole('heading', { name: 'Live carbon intensity' })).toBeVisible();
   const sourceBoundary = page.getByRole('region', { name: 'Synthetic schedule inputs — live display isolated' });
   await expect(sourceBoundary).toBeVisible();
-  await expect(sourceBoundary.getByText('NOT CONNECTED', { exact: true })).toBeVisible();
+  await expect(liveCarbonPanel).toContainText('E2E deterministic fixture');
   await expect(sourceBoundary).toContainText('The read-only NESO display does not feed, modify, or influence either scheduling strategy.');
   await expect(page.getByRole('navigation', { name: 'Workspace sections' })).toBeVisible();
   const shellColumns = await page.locator('.app-shell').evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length);
@@ -220,8 +249,9 @@ test('edits, evaluates against FastAPI, inspects results, and exports the scenar
     document.documentElement.style.scrollBehavior = 'auto';
     window.scrollTo({ top: 0, behavior: 'instant' });
   });
-  const scrollOffset = await page.evaluate(() => Math.abs(window.scrollY));
-  expect(scrollOffset, 'page should be reset to the top within 1 CSS pixel').toBeLessThanOrEqual(1);
+  await expect.poll(() => page.evaluate(() => Math.abs(window.scrollY)), {
+    message: 'page should be reset to the top within 1 CSS pixel',
+  }).toBeLessThanOrEqual(1);
   expect(await page.locator('.topbar').evaluate((element) => element.getBoundingClientRect().top)).toBe(0);
   await page.waitForTimeout(100);
   if (process.env.CAPTURE_DASHBOARD_SCREENSHOTS === '1') {
@@ -244,11 +274,12 @@ test('edits, evaluates against FastAPI, inspects results, and exports the scenar
       document.documentElement.style.scrollBehavior = 'auto';
       window.scrollTo({ top: 0, behavior: 'instant' });
     });
-    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
     expect(await page.locator('.side-rail').evaluate((element) => element.getBoundingClientRect().top)).toBe(0);
     const mobileTopbarTop = await page.locator('.topbar').evaluate((element) => element.getBoundingClientRect().top);
-    expect(mobileTopbarTop).toBeGreaterThan(0);
-    expect(mobileTopbarTop).toBeLessThan(100);
+    const mobileRailBottom = await page.locator('.side-rail').evaluate((element) => element.getBoundingClientRect().bottom);
+    expect(mobileTopbarTop).toBeGreaterThanOrEqual(mobileRailBottom - 1);
+    expect(mobileTopbarTop).toBeLessThan(160);
     await page.waitForTimeout(100);
     await page.screenshot({ path: '../docs/screenshots/ev-depot-workbench-after-390x844.png', fullPage: false, animations: 'disabled' });
     await page.evaluate(() => {

@@ -12,17 +12,18 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'python -m uvicorn app.main:app --host 127.0.0.1 --port 8000',
+      command: 'node frontend/scripts/e2e-server-guard.mjs 8000 && python -m uvicorn scripts.e2e_fastapi:app --host 127.0.0.1 --port 8000',
       cwd: '..',
-      url: 'http://127.0.0.1:8000/health',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 30_000,
+      wait: { stderr: /Application startup complete\./ },
     },
     {
-      command: 'npm run dev',
-      url: 'http://127.0.0.1:5173',
-      reuseExistingServer: !process.env.CI,
+      command: 'node scripts/e2e-server-guard.mjs 5173 && npm run dev -- --port 5173 --strictPort',
+      reuseExistingServer: false,
       timeout: 30_000,
+      wait: { stdout: /Local:\s+http:\/\/127\.0\.0\.1:5173\// },
+      env: { VITE_API_BASE_URL: '' },
     },
   ],
 });
