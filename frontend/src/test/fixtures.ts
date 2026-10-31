@@ -1,4 +1,4 @@
-import type { SimulationResult } from '../api/client';
+import type { ForecastScenario, ForecastSchedulingResult, SimulationResult } from '../api/client';
 
 const checks = {
   scenario_bounds_respected: true,
@@ -77,7 +77,7 @@ export function simulationResult(): SimulationResult {
       vehicle_power_limit_segments: { 'van-1': [0] },
       availability_window_end_used_segments: {},
     },
-    baseline_constraint_checks: checks,
+    baseline_constraint_checks: { ...checks },
     carbon_aware: {
       strategy: 'carbon_aware_edf_then_bounded_carbon_shift_v1',
       feasible: true,
@@ -100,7 +100,7 @@ export function simulationResult(): SimulationResult {
         vehicle_power_limit_segments: { 'van-1': [1] },
         availability_window_end_used_segments: {},
       },
-      constraint_checks: checks,
+      constraint_checks: { ...checks },
     },
     baseline_carbon_proxy: 2900,
     carbon_aware_carbon_proxy: 1100,
@@ -140,6 +140,162 @@ export function incompleteSimulationResult(): SimulationResult {
   result.comparison_unavailable_reason = 'At least one strategy did not demonstrate complete service; this does not prove infeasibility.';
   result.percentage_difference_unavailable_reason = 'Not defined for an unavailable equal-service comparison.';
   return result;
+}
+
+export function forecastSchedulingResultFixture(
+  scenario: ForecastScenario,
+  complete = true,
+): ForecastSchedulingResult {
+  const start = Date.parse(scenario.start_at);
+  const intervalMs = scenario.interval_minutes * 60_000;
+  const requiredTotal = scenario.vehicles.reduce((sum, vehicle) => sum + vehicle.required_energy_kwh, 0);
+  const intensityAt = (index: number) => index === 0 ? 400 : index === 1 ? 250 : 50;
+
+  const makeSchedule = (reverse: boolean) => {
+    const scheduleComplete = complete || reverse;
+    const delivered: Record<string, number> = {};
+    const unmet: Record<string, number> = {};
+    const vehicleResults: Record<string, { required_energy_kwh: number; delivered_energy_kwh: number; unmet_energy_kwh: number }> = {};
+    const allocations: NonNullable<ForecastSchedulingResult['immediate_baseline']>['allocations'] = [];
+    const intervalEnergy = Array.from({ length: scenario.intervals }, () => 0);
+
+    for (const vehicle of scenario.vehicles) {
+      const leaveUnmetEnergy = !scheduleComplete && vehicle.vehicle_id === scenario.vehicles[0]?.vehicle_id;
+      const targetEnergy = leaveUnmetEnergy
+        ? Math.max(0, vehicle.required_energy_kwh - 1)
+        : vehicle.required_energy_kwh;
+      let remaining = targetEnergy;
+      const order = Array.from({ length: scenario.intervals }, (_, index) => index);
+      if (reverse) order.reverse();
+      for (const index of order) {
+        if (remaining <= 1e-9) break;
+        const energy = Math.min(remaining, vehicle.charging_power_kw * scenario.interval_minutes / 60);
+        const intervalStart = new Date(start + index * intervalMs).toISOString();
+        allocations.push({
+          interval_index: index,
+          segment_start: intervalStart,
+          segment_end: new Date(start + (index + 1) * intervalMs).toISOString(),
+          vehicle_id: vehicle.vehicle_id,
+          charging_power_kw: energy * 60 / scenario.interval_minutes,
+          energy_kwh: energy,
+          carbon_intensity_value: intensityAt(index),
+          intensity_unit: 'gCO2/kWh',
+        });
+        intervalEnergy[index] = (intervalEnergy[index] ?? 0) + energy;
+        remaining -= energy;
+      }
+      const received = targetEnergy - remaining;
+      const unmetEnergy = vehicle.required_energy_kwh - received;
+      delivered[vehicle.vehicle_id] = received;
+      unmet[vehicle.vehicle_id] = unmetEnergy;
+      vehicleResults[vehicle.vehicle_id] = {
+        required_energy_kwh: vehicle.required_energy_kwh,
+        delivered_energy_kwh: received,
+        unmet_energy_kwh: unmetEnergy,
+      };
+    }
+
+    const loads = intervalEnergy.map((energy, index) => ({
+      interval_index: index,
+      interval_start: new Date(start + index * intervalMs).toISOString(),
+      interval_end: new Date(start + (index + 1) * intervalMs).toISOString(),
+      average_power_kw: energy * 60 / scenario.interval_minutes,
+      peak_power_kw: energy * 60 / scenario.interval_minutes,
+      delivered_energy_kwh: energy,
+    }));
+    const totalDelivered = Object.values(delivered).reduce((sum, value) => sum + value, 0);
+    const carbonProxy = allocations.reduce((sum, allocation) => sum + allocation.energy_kwh * allocation.carbon_intensity_value, 0);
+    return {
+      strategy: reverse ? 'carbon_aware_edf_then_bounded_carbon_shift_v1' : 'immediate_charge_in_vehicle_id_order',
+      feasible: scheduleComplete,
+      feasibility_classification: scheduleComplete ? 'complete_schedule_demonstrated' : 'complete_schedule_not_demonstrated',
+      total_required_energy_kwh: requiredTotal,
+      total_delivered_energy_kwh: totalDelivered,
+      delivered_energy_kwh: delivered,
+      unmet_energy_kwh: unmet,
+      vehicle_results: vehicleResults,
+      interval_charging_kw: loads.map((row) => row.average_power_kw),
+      allocations,
+      aggregate_depot_load: loads,
+      peak_depot_power_kw: Math.max(0, ...loads.map((row) => row.peak_power_kw)),
+      carbon_intensity_weighted_energy_proxy: carbonProxy,
+      carbon_proxy_unit: 'gCO2',
+      binding_operational_constraints: {
+        depot_capacity_interval_indexes: [],
+        vehicle_power_limit_segments: {},
+        availability_window_end_used_segments: {},
+      },
+      constraint_checks: { ...checks },
+    };
+  };
+
+  const baseline = makeSchedule(false);
+  const forecastAware = makeSchedule(true);
+  const eligible = complete && baseline.feasible && forecastAware.feasible;
+  const baselineProxy = baseline.carbon_intensity_weighted_energy_proxy;
+  const forecastProxy = forecastAware.carbon_intensity_weighted_energy_proxy;
+  const predictionStart = new Date(start - intervalMs).toISOString();
+  const predictionEnd = new Date(start - intervalMs + 48 * 30 * 60_000).toISOString();
+  const decisionTime = new Date(Date.now() - 30_000).toISOString();
+  return {
+    scenario_id: scenario.scenario_id,
+    status: 'available',
+    unavailable_reason: null,
+    unavailable_detail: null,
+    input_provenance: {
+      source_classification: 'regional_forecast',
+      source_api: 'neso-carbon-intensity-api',
+      source_url: `https://api.carbonintensity.org.uk/regional/intensity/${predictionStart.slice(0, 16)}Z/fw24h/regionid/13`,
+      region_id: 13,
+      region_name: 'London',
+      measurement_type: 'forecast',
+      forecast_retrieved_at: new Date(Date.parse(decisionTime) - 30_000).toISOString(),
+      prediction_horizon_start: predictionStart,
+      prediction_horizon_end: predictionEnd,
+      scheduling_horizon_start: scenario.start_at,
+      scheduling_horizon_end: new Date(start + scenario.intervals * intervalMs).toISOString(),
+      decision_time: decisionTime,
+      forecast_age_seconds: 30,
+      intensity_unit: 'gCO2/kWh',
+      interval_count: 48,
+    },
+    immediate_baseline: baseline,
+    forecast_aware: forecastAware,
+    comparison_eligible: eligible,
+    absolute_carbon_proxy_reduction: eligible ? baselineProxy - forecastProxy : null,
+    percentage_carbon_proxy_reduction: eligible && baselineProxy > 0 ? (baselineProxy - forecastProxy) / baselineProxy * 100 : null,
+    comparison_unavailable_reason: eligible
+      ? null
+      : 'Equivalent-service comparison is unavailable because at least one strategy did not complete every vehicle requirement.',
+    percentage_difference_unavailable_reason: null,
+    carbon_proxy_unit: 'gCO2',
+    advisory_only: true,
+    forecast_based: true,
+    measured: false,
+    real_world_emissions_reduction_claimed: false,
+  } as ForecastSchedulingResult;
+}
+
+export function unavailableForecastSchedulingResult(scenario: ForecastScenario): ForecastSchedulingResult {
+  return {
+    scenario_id: scenario.scenario_id,
+    status: 'unavailable',
+    unavailable_reason: 'forecast_unavailable',
+    unavailable_detail: 'upstream_error',
+    input_provenance: null,
+    immediate_baseline: null,
+    forecast_aware: null,
+    comparison_eligible: false,
+    absolute_carbon_proxy_reduction: null,
+    percentage_carbon_proxy_reduction: null,
+    comparison_unavailable_reason: 'No schedule is available because server-owned forecast evidence could not be retrieved.',
+    percentage_difference_unavailable_reason: null,
+    carbon_proxy_unit: 'gCO2',
+    advisory_only: true,
+    forecast_based: true,
+    measured: false,
+    real_world_emissions_reduction_claimed: false,
+  };
 }
 
 export function jsonResponse(value: unknown, status = 200): Response {

@@ -37,6 +37,14 @@ class CarbonGateResponse(BaseModel):
     carbon_intensity_gco2_per_kwh: FiniteFloat = Field(ge=0)
 
 
+class CarbonIntensityUnavailableResponse(BaseModel):
+    """HTTP error body returned when forecast data cannot be retrieved."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    detail: str
+
+
 class CarbonIntensityResponse(BaseModel):
     """NESO intensity observation with value, time validity, and provenance."""
 
@@ -208,6 +216,12 @@ async def get_carbon_intensity(
 @router.get(
     "/carbon-intensity/forecast",
     response_model=CarbonIntensityForecastTimelineResponse,
+    responses={
+        503: {
+            "model": CarbonIntensityUnavailableResponse,
+            "description": "NESO forecast is temporarily unavailable.",
+        },
+    },
 )
 async def get_carbon_intensity_forecast(
     request: Request,
